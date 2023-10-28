@@ -1,7 +1,6 @@
 import React from 'react';
 
-import { NavigationContainer } from '@react-navigation/native';
-import { createStackNavigator } from '@react-navigation/stack';
+import { createBottomTabNavigator } from '@react-navigation/bottom-tabs';
 
 // styled components
 import { colors } from '../components/colors';
@@ -9,44 +8,18 @@ const { accent, secondary, darkGrey } = colors;
 
 //screens
 import Dashboard from '../screens/Dashboard';
+import NotificationSettings from '../screens/NotificationSettings';
+import Notifications from '../screens/Notifications';
 
-const Stack = createStackNavigator();
+const Tab = createBottomTabNavigator();
 
 const MainStack = () => {
-    return <NavigationContainer>
-        <Stack.Navigator
-            screenOptions={{
-                headerTintColor: accent,
-                headerStyle: {
-                    height: 100,
-                    backgroundColor: secondary,
-                    borderBottomWidth: 0,
-                    shadowColor: 'transparent',
-                    shadowOpacity: 0,
-                    elevation: 0
-                },
-                headerLeftContainerStyle: {
-                    paddingLeft: 10
-                },
-                headerRightContainerStyle: {
-                    paddingRight: 25
-                }
-        }}
-        initialRouteName='Dashboard'     
-        >
-            <Stack.Screen name="Dashboard" component={Dashboard} options={{
-                headerStyle: {
-                    height: 100,
-                    backgroundColor: darkGrey,
-                    borderBottomWidth: 0,
-                    shadowColor: 'transparent',
-                    shadowOpacity: 0,
-                    elevation: 0
-                },
-                headerRight: () => <AvatarButton />
-            }}/>
-        </Stack.Navigator>
-    </NavigationContainer>;
+    return (
+      <Tab.Navigator screenOptions={{ headerShown: false }}>
+        <Tab.Screen name="Dashboard" component={Dashboard} />
+        <Tab.Screen name="Settings" component={NotificationSettings} />
+      </Tab.Navigator>
+    )
 }
 
 export default MainStack;

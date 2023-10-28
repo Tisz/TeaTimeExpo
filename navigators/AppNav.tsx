@@ -18,6 +18,7 @@ import Dashboard from '../screens/Dashboard';
 //components
 import AvatarButton from '../components/Buttons/AvatarButton';
 import { AuthContext } from '../context/AuthContext';
+import MainStack from './MainStack';
 
 //context
 
@@ -49,7 +50,7 @@ export function AppNav() {
       <NavigationContainer>
           <Stack.Navigator
               screenOptions={{
-                  headerTintColor: accent,
+                  headerTintColor: authState.token == "" ? accent : 'transparent' ,
                   headerStyle: {
                       height: 100,
                       backgroundColor: secondary,
@@ -63,7 +64,7 @@ export function AppNav() {
                   },
                   headerRightContainerStyle: {
                       paddingRight: 25
-                  }
+                  },
               }}
           initialRouteName='Login'     
           >
@@ -78,7 +79,7 @@ export function AppNav() {
               ) : (
                 // User is signed in
                 <>
-                  <Stack.Screen name="Dashboard" component={Dashboard} 
+                  <Stack.Screen name="Main" component={MainStack} 
                     options={{
                       headerStyle: {
                           height: 100,

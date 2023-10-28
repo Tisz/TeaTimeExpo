@@ -11,12 +11,12 @@ const { primary, secondary, tertiary, accent, lightGrey } = colors;
 
 const InputField = styled.TextInput`
     background-color: ${primary};
-    padding: 15px;
-    padding-left: 65px;
+    padding: 10px;
+    padding-left: 50px;
     padding-right: 55px;
     border-radius: 10px;
     font-size: 16px;
-    height: 60px;
+    height: 40px;
     margin-top: 3px;
     margin-bottom: 10px;
     color: ${tertiary};
@@ -26,27 +26,17 @@ const InputField = styled.TextInput`
 
 const LeftIcon = styled.View`
     position: absolute;
-    top: 35px;
-    left: 15px;
+    top: 25px;
+    left: 5px;
     z-index: 1;
     border-right-width: 2px;
     border-color: ${secondary};
-    padding-right: 10px;
-`;
-
-const RightIcon = styled.TouchableOpacity`
-    position: absolute;
-    top: 35px;
-    right: 15px;
-    z-index: 1;
+    padding-right: 4px;
 `;
 
 
-const StyledTextInput = ({icon = null, label, isPassword = false,
-        overrideHeight=60, overrideFontSize=16, ...props}) => {
-
+const SmallStyledTextInput = ({icon = null, label, ...props}) => {
     const [inputBackgroundColor, setInputBackgroundColor] = useState(primary);
-    const [hidePassword, setHidePassword] = useState(true);
 
     const customOnBlur = () => {
         props?.Onblur;
@@ -69,19 +59,11 @@ const StyledTextInput = ({icon = null, label, isPassword = false,
         <InputField
             {...props}
             placeholderTextColor={lightGrey}
-            style={{backgroundColor: inputBackgroundColor, height: overrideHeight, fontSize: overrideFontSize, ...props?.style}}
+            style={{backgroundColor: inputBackgroundColor, ...props?.style}}
             onBlur={customOnBlur}
             onFocus={customOnFocus}
-            secureTextEntry={isPassword && hidePassword}
         />
-        {isPassword && 
-            <RightIcon onPress={() => {
-                setHidePassword(!hidePassword);
-            }}>
-                <MaterialCommunityIcons name={hidePassword ? 'eye-off' : 'eye'} size={30} color={tertiary}/>
-            </RightIcon>}
-
     </View>)
 }
 
-export default StyledTextInput;
+export default SmallStyledTextInput;
