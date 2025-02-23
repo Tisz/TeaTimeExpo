@@ -4,9 +4,6 @@ import { StatusBar } from 'expo-status-bar';
 import { NavigationContainer } from '@react-navigation/native';
 import { createStackNavigator } from '@react-navigation/stack';
 
-import { colors } from '../components/colors';
-const { accent, secondary, darkGrey } = colors;
-
 //screens
 import Login from '../screens/Login';
 import Signup from '../screens/Signup';
@@ -20,11 +17,13 @@ import AvatarButton from '../components/Buttons/AvatarButton';
 import { AuthContext } from '../context/AuthContext';
 import MainStack from './MainStack';
 
-//context
+import { useTheme } from 'styled-components/native';
+import { ThemeType } from '../components/Colors/Colors';
 
 export function AppNav() {
+  const theme = useTheme() as ThemeType;
   const [isLoading, setIsLoading] = useState(true);
-  const [authState, setAuthState] = useContext(AuthContext);
+  const { authState, setAuthState } = useContext(AuthContext);
   const Stack = createStackNavigator();
 
   const getUserToken = async () => {
@@ -50,10 +49,10 @@ export function AppNav() {
       <NavigationContainer>
           <Stack.Navigator
               screenOptions={{
-                  headerTintColor: authState.token == "" ? accent : 'transparent' ,
+                  headerTintColor: authState.token == "" ? theme.accent : 'transparent' ,
                   headerStyle: {
                       height: 100,
-                      backgroundColor: secondary,
+                      backgroundColor: theme.secondary,
                       borderBottomWidth: 0,
                       shadowColor: 'transparent',
                       shadowOpacity: 0,
@@ -83,7 +82,7 @@ export function AppNav() {
                     options={{
                       headerStyle: {
                           height: 100,
-                          backgroundColor: darkGrey,
+                          backgroundColor: theme.darkGrey,
                           borderBottomWidth: 0,
                           shadowColor: 'transparent',
                           shadowOpacity: 0,

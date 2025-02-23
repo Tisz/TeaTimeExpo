@@ -1,9 +1,5 @@
 import React, {useRef,useState,useEffect} from 'react';
-
-// styled components
 import styled from 'styled-components/native'
-import { colors } from '../colors';
-const { primary, secondary, tertiary, accent } = colors;
 
 const CodeInputSection = styled.View`
     flex: 1;
@@ -30,18 +26,18 @@ const CodeInput = styled.View`
     padding: 12px;
     border-bottom-width: 5px;
     border-radius: 10px;
-    border-color: ${secondary};
+    border-color: ${(props) => props.theme.secondary};
 `;
 
 const CodeInputText = styled.Text`
     font-size: 22px;
     font-weight: bold;
     text-align: center;
-    color: ${tertiary};
+    color:  ${(props) => props.theme.tertiary};
 `;
 
 const CodeInputFocused = styled(CodeInput)`
-    border-color: ${accent};
+    border-color:  ${(props) => props.theme.accent};
 `;
 
 const StyledCodeInput = ({code, setCode, maxLength, setPinReady }) => {

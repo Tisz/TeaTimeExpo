@@ -2,8 +2,8 @@ import React, {useState} from 'react';
 import { Formik } from 'formik';
 import { ActivityIndicator } from 'react-native'
 
-import { colors } from '../components/colors';
-const {primary} = colors
+import { useTheme } from 'styled-components/native';
+import { ThemeType } from '../components/Colors/Colors';
 
 //custom components
 import MainContainer from '../components/Containers/MainContainer';
@@ -15,6 +15,7 @@ import RegularButton from '../components/Buttons/RegularButton';
 import PressableText from '../components/Texts/PressableText';
 
 const Signup = ({navigation}) => {
+    const theme = useTheme() as ThemeType;
     const [message, setMessage] = useState('');
     const [isSuccessMessage, setIsSuccessMessage] = useState(false);
 
@@ -125,7 +126,7 @@ const Signup = ({navigation}) => {
                             { message  || " "}
                         </MessageBox>
                         {!isSubmitting && <RegularButton onPress={handleSubmit}>Sign Up</RegularButton>}
-                        {isSubmitting && (<RegularButton disabled={true}><ActivityIndicator size="small" color={primary}></ActivityIndicator>Sign up</RegularButton>)}
+                        {isSubmitting && (<RegularButton disabled={true}><ActivityIndicator size="small" color={theme.primary}></ActivityIndicator>Sign up</RegularButton>)}
 
                         <PressableText style={{ paddingVertical: 15 }} onPress={() => {moveTo('Login')}}>Use Existing Account</PressableText>
 

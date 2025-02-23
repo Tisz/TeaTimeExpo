@@ -2,9 +2,8 @@ import React, {useState, useContext} from 'react';
 import { Formik } from 'formik';
 import { ActivityIndicator } from 'react-native'
 
-import { colors } from '../components/colors';
-const {primary} = colors
-
+import { useTheme } from 'styled-components/native';
+import { ThemeType } from '../components/Colors/Colors';
 //custom components
 import MainContainer from '../components/Containers/MainContainer';
 import KeyboardAvoidingContainer from '../components/Containers/KeyboardAvoidingContainer';
@@ -20,9 +19,10 @@ import RowContainer from '../components/Containers/RowContainer';
 import { AuthContext} from '../context/AuthContext';
 
 const Login = ({navigation, route}) => {
+    const theme = useTheme() as ThemeType;
     const [message, setMessage] = useState('');
     const [isSuccessMessage, setIsSuccessMessage] = useState(false);
-    const [authState, setAuthState] = useContext(AuthContext);
+    const { authState, setAuthState } = useContext(AuthContext);
 
     const moveTo = (screen, payload = null) => {
         navigation.navigate(screen, {...payload});
@@ -106,7 +106,7 @@ const Login = ({navigation, route}) => {
                             { message  || " "}
                         </MessageBox>
                         {!isSubmitting && <RegularButton onPress={handleSubmit}>Login</RegularButton>}
-                        {isSubmitting && (<RegularButton disabled={true}><ActivityIndicator size="small" color={primary}/></RegularButton>)}
+                        {isSubmitting && (<RegularButton disabled={true}><ActivityIndicator size="small" color={theme.primary}/></RegularButton>)}
 
                         <RowContainer>                        
                             <PressableText onPress={() => {moveTo('Signup')}}>New Account?</PressableText>

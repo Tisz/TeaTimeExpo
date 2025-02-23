@@ -1,16 +1,13 @@
 import React, {useState} from 'react';
 import { View } from 'react-native';
-
 import {MaterialCommunityIcons} from '@expo/vector-icons';
-
-// styled components
+import { useTheme } from 'styled-components/native';
+import { ThemeType } from '../Colors/Colors';
 import styled from 'styled-components/native'
-import { colors } from '../colors';
 import SmallText from '../Texts/SmallText';
-const { primary, secondary, tertiary, accent, lightGrey } = colors;
 
 const InputField = styled.TextInput`
-    background-color: ${primary};
+    background-color: ${(props) => props.theme.primary};
     padding: 15px;
     padding-left: 65px;
     padding-right: 55px;
@@ -19,8 +16,8 @@ const InputField = styled.TextInput`
     height: 60px;
     margin-top: 3px;
     margin-bottom: 10px;
-    color: ${tertiary};
-    border-color: ${secondary}; 
+    color: ${(props) => props.theme.tertiary};
+    border-color: ${(props) => props.theme.secondary}; 
     border-width: 2px;
     `;
 
@@ -30,7 +27,7 @@ const LeftIcon = styled.View`
     left: 15px;
     z-index: 1;
     border-right-width: 2px;
-    border-color: ${secondary};
+    border-color: ${(props) => props.theme.secondary};
     padding-right: 10px;
 `;
 
@@ -44,31 +41,31 @@ const RightIcon = styled.TouchableOpacity`
 
 const StyledTextInput = ({icon = null, label, isPassword = false,
         overrideHeight=60, overrideFontSize=16, ...props}) => {
-
-    const [inputBackgroundColor, setInputBackgroundColor] = useState(primary);
+    const theme = useTheme() as ThemeType;
+    const [inputBackgroundColor, setInputBackgroundColor] = useState(theme.primary);
     const [hidePassword, setHidePassword] = useState(true);
 
     const customOnBlur = () => {
         props?.Onblur;
-        setInputBackgroundColor(primary);
+        setInputBackgroundColor(theme.primary);
     }
 
     const customOnFocus = () => {
         props?.onFocus;
-        setInputBackgroundColor(secondary);
+        setInputBackgroundColor(theme.secondary);
     }
 
     return (<View>
 
         {icon != null && <LeftIcon>
-            <MaterialCommunityIcons name={icon} size={30} color={accent}/>
+            <MaterialCommunityIcons name={icon} size={30} color={theme.accent}/>
         </LeftIcon>}
 
 
         <SmallText>{label}</SmallText>
         <InputField
             {...props}
-            placeholderTextColor={lightGrey}
+            placeholderTextColor={theme.lightGrey}
             style={{backgroundColor: inputBackgroundColor, height: overrideHeight, fontSize: overrideFontSize, ...props?.style}}
             onBlur={customOnBlur}
             onFocus={customOnFocus}
@@ -78,7 +75,7 @@ const StyledTextInput = ({icon = null, label, isPassword = false,
             <RightIcon onPress={() => {
                 setHidePassword(!hidePassword);
             }}>
-                <MaterialCommunityIcons name={hidePassword ? 'eye-off' : 'eye'} size={30} color={tertiary}/>
+                <MaterialCommunityIcons name={hidePassword ? 'eye-off' : 'eye'} size={30} color={theme.tertiary}/>
             </RightIcon>}
 
     </View>)

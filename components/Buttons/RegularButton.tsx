@@ -4,11 +4,12 @@ import React from 'react';
 import styled from 'styled-components/native'
 import { colors } from '../colors';
 import RegularText from '../Texts/RegularText';
-const { primary, accent } = colors;
+import { useTheme } from 'styled-components/native';
+import { ThemeType } from '../Colors/Colors';
 
 const ButtonView = styled.TouchableOpacity`
     padding: 15px;
-    background-color: ${accent};
+    background-color: ${(props) => props.theme.accent};
     width: 100%;
     justify-content: center;
     align-items: center;
@@ -18,8 +19,9 @@ const ButtonView = styled.TouchableOpacity`
 
 
 const RegularButton = (props) => {
+    const theme = useTheme() as ThemeType;
     return <ButtonView onPress={props.onPress} {...props}>
-        <RegularText style={[{color: primary}, {...props?.textStyle}]}>{props.children}</RegularText>
+        <RegularText style={[{color: theme.primary}, {...props?.textStyle}]}>{props.children}</RegularText>
         </ButtonView>
 }
 

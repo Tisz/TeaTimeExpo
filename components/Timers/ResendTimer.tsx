@@ -1,9 +1,5 @@
 import React, {useState, useEffect} from 'react';
-
-// styled components
 import styled from 'styled-components/native'
-import { colors } from '../colors';
-const { accent, fail, success } = colors;
 import SmallText from '../Texts/SmallText';
 import PressableText from '../Texts/PressableText';
 import RowContainer from '../Containers/RowContainer';
@@ -14,14 +10,14 @@ const StyledView = styled.View`
     `;
 
 const ResendText = styled(SmallText)`
-    color: ${accent};
+    color: ${(props) => props.theme.accent};
     ${(props) => {
         const {resendStatus} = props; 
         if (resendStatus == 'Failed!'){
-            return `color: ${fail}`
+            return `color: ${(props) => props.theme.fail};`
         }
         else if (resendStatus == 'Sent!') {
-            return `color: ${success}`
+            return `color: ${(props) => props.theme.success};`
         }
     }}
 `

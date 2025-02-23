@@ -1,11 +1,8 @@
 import React, {useState} from 'react';
 import { Formik } from 'formik';
 import { ActivityIndicator } from 'react-native'
-
-import { colors } from '../components/colors';
-const {primary} = colors
-
-//custom components
+import { useTheme } from 'styled-components/native';
+import { ThemeType } from '../components/Colors/Colors';
 import MainContainer from '../components/Containers/MainContainer';
 import KeyboardAvoidingContainer from '../components/Containers/KeyboardAvoidingContainer';
 import RegularText from '../components/Texts/RegularText';
@@ -17,6 +14,7 @@ import IconHeader from '../components/Icons/IconHeader';
 
 
 const ForgotPassword = ({navigation}) => {
+    const theme = useTheme() as ThemeType;
     const [message, setMessage] = useState('');
     const [isSuccessMessage, setIsSuccessMessage] = useState(false);
 
@@ -76,7 +74,7 @@ const ForgotPassword = ({navigation}) => {
                             { message  || " "}
                         </MessageBox>
                         {!isSubmitting && <RegularButton onPress={handleSubmit}>Login</RegularButton>}
-                        {isSubmitting && (<RegularButton disabled={true}><ActivityIndicator size="small" color={primary}></ActivityIndicator>Send Request</RegularButton>)}
+                        {isSubmitting && (<RegularButton disabled={true}><ActivityIndicator size="small" color={theme.primary}></ActivityIndicator>Send Request</RegularButton>)}
                
                         <PressableText style={{marginTop: 30}} onPress={() => {}}>Back</PressableText>
 

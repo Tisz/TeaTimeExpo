@@ -1,10 +1,8 @@
 import React from 'react';
-
-// styled components
 import styled from 'styled-components/native'
-import { colors } from '../colors';
 import SmallText from '../Texts/SmallText';
-const { accent } = colors;
+import { useTheme } from 'styled-components/native';
+import { ThemeType } from '../Colors/Colors';
 
 const StylePressable = styled.Pressable`
     padding-vertical: 5px;
@@ -13,8 +11,9 @@ const StylePressable = styled.Pressable`
 
 
 const PressableText = (props) => {
+    const theme = useTheme() as ThemeType;
     return <StylePressable onPress={props.onPress} {...props}>
-        <SmallText style={{color: accent}}>{props.children}</SmallText>
+            <SmallText style={{color: theme.accent}}>{props.children}</SmallText>
         </StylePressable>
 }
 

@@ -1,19 +1,11 @@
 import React, {useState} from 'react';
-import { colors } from '../components/colors';
-const {darkGrey} = colors
-
-//custom components
 import MainContainer from '../components/Containers/MainContainer';
-import BigText from '../components/Texts/BigText';
-
-// styled components
 import styled from 'styled-components/native'
 import { ScreenHeight } from '../components/shared';
-import StyledTextInput from '../components/Inputs/StyledTextInput';
 import NotificationItemCard from '../components/Cards/NotificationItemCard';
 
 const TopBackground = styled.View`
-    background-color: ${darkGrey};
+    background-color: ${(props) => props.theme.darkGrey};
     width: 100%;
     height: ${ScreenHeight * 0.15}px;
     border-radius: 30px;

@@ -1,4 +1,4 @@
-import { createContext, useContext } from "react";
+import { createContext, Dispatch, SetStateAction, useContext } from "react";
 
 const AuthContext = createContext(
 { 
@@ -8,7 +8,7 @@ const AuthContext = createContext(
         token:"", 
         signedIn:false
     }, 
-    setAuthState: () => {} 
+    setAuthState: {} as Dispatch<SetStateAction<{ id: string; token: string; signedIn: boolean; }>> 
 });
 
 export { AuthContext };

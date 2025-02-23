@@ -1,9 +1,8 @@
 import React, {useState} from 'react';
 import { Formik } from 'formik';
 import { ActivityIndicator } from 'react-native'
-
-import { colors } from '../components/colors';
-const {primary, accent} = colors
+import { useTheme } from 'styled-components/native';
+import { ThemeType } from '../components/Colors/Colors';
 
 //custom components
 import MainContainer from '../components/Containers/MainContainer';
@@ -28,6 +27,7 @@ const FormWrapper = styled.View`
 `
 
 const ResetPassword = ({navigation}) => {
+    const theme = useTheme() as ThemeType;
     const MAX_CODE_LENGTH = 4;
     const [message, setMessage] = useState('');
     const [isSuccessMessage, setIsSuccessMessage] = useState(false);
@@ -109,7 +109,7 @@ const ResetPassword = ({navigation}) => {
 
     return <MainContainer>
         <KeyboardAvoidingContainer>
-            <IconHeader color={accent} name="lock-open" style={{ marginBottom: 20}}/> 
+            <IconHeader color={theme.accent} name="lock-open" style={{ marginBottom: 20}}/> 
 
             <RegularText style={{textAlign: 'center'}}>
                 Enter the 4-digit code sent to your email
@@ -172,7 +172,7 @@ const ResetPassword = ({navigation}) => {
                             { message  || " "}
                         </MessageBox>
                         {!isSubmitting && <RegularButton disabled={!pinReady} onPress={handleSubmit}>Login</RegularButton>}
-                        {isSubmitting && (<RegularButton disabled={true}><ActivityIndicator size="small" color={primary}></ActivityIndicator>Login</RegularButton>)}
+                        {isSubmitting && (<RegularButton disabled={true}><ActivityIndicator size="small" color={theme.primary}></ActivityIndicator>Login</RegularButton>)}
 
                         <PressableText style={{marginTop: 15}} onPress={() => {}}>Back</PressableText>
                     </FormWrapper>

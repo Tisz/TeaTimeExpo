@@ -1,13 +1,9 @@
 import React from 'react';
-
-// styled components
 import styled from 'styled-components/native'
-import { colors } from '../colors';
-const { tertiary } = colors;
 
 const StyledText = styled.Text`
     font-size: 30px;
-    color: ${tertiary};
+    color: ${(props) => props.theme.tertiary};
     text-align: left;
     `;
 
