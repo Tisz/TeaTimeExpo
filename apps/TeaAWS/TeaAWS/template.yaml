@@ -1,0 +1,296 @@
+AWSTemplateFormatVersion: "2010-09-09"
+Transform: AWS::Serverless-2016-10-31
+Description: Tea Time suburb chat websocket backend
+
+Parameters:
+  ChatTableName:
+    Type: String
+    Default: TeaChat
+    MinLength: 3
+    MaxLength: 50
+    AllowedPattern: "^[A-Za-z_]+$"
+
+  CognitoUserPoolId:
+    Type: String
+    Description: Cognito user pool id used to validate websocket id tokens.
+
+  CognitoRegion:
+    Type: String
+    Default: ap-southeast-2
+
+  CognitoClientId:
+    Type: String
+    Default: ""
+    Description: Optional Cognito app client id to enforce audience validation.
+
+  ConnectionTtlSeconds:
+    Type: Number
+    Default: 900
+    MinValue: 60
+    MaxValue: 86400
+
+  PersistMessageHistory:
+    Type: String
+    Default: "true"
+    AllowedValues:
+      - "true"
+      - "false"
+
+Resources:
+
+  ChatTable:
+    Type: AWS::DynamoDB::Table
+    Properties:
+      TableName: !Ref ChatTableName
+      BillingMode: PAY_PER_REQUEST
+      AttributeDefinitions:
+        - AttributeName: PK
+          AttributeType: S
+        - AttributeName: SK
+          AttributeType: S
+        - AttributeName: GSI1PK
+          AttributeType: S
+        - AttributeName: GSI1SK
+          AttributeType: S
+      KeySchema:
+        - AttributeName: PK
+          KeyType: HASH
+        - AttributeName: SK
+          KeyType: RANGE
+      GlobalSecondaryIndexes:
+        - IndexName: GSI1
+          KeySchema:
+            - AttributeName: GSI1PK
+              KeyType: HASH
+            - AttributeName: GSI1SK
+              KeyType: RANGE
+          Projection:
+            ProjectionType: ALL
+      TimeToLiveSpecification:
+        AttributeName: expiresAt
+        Enabled: true
+
+  OnConnectFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      Handler: TeaAWS::TeaAWS.Functions::OnConnectHandler
+      Runtime: dotnet10
+      MemorySize: 512
+      Timeout: 30
+      Policies:
+        - Statement:
+            Effect: Allow
+            Action:
+              - dynamodb:PutItem
+            Resource:
+              - !GetAtt ChatTable.Arn
+      Environment:
+        Variables:
+          CHAT_TABLE: !Ref ChatTableName
+          COGNITO_USER_POOL_ID: !Ref CognitoUserPoolId
+          COGNITO_REGION: !Ref CognitoRegion
+          COGNITO_CLIENT_ID: !Ref CognitoClientId
+          CONNECTION_TTL_SECONDS: !Ref ConnectionTtlSeconds
+          PERSIST_MESSAGE_HISTORY: !Ref PersistMessageHistory
+
+  OnDisconnectFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      Handler: TeaAWS::TeaAWS.Functions::OnDisconnectHandler
+      Runtime: dotnet10
+      MemorySize: 512
+      Timeout: 30
+      Policies:
+        - Statement:
+            Effect: Allow
+            Action:
+              - dynamodb:DeleteItem
+            Resource:
+              - !GetAtt ChatTable.Arn
+      Environment:
+        Variables:
+          CHAT_TABLE: !Ref ChatTableName
+          COGNITO_USER_POOL_ID: !Ref CognitoUserPoolId
+          COGNITO_REGION: !Ref CognitoRegion
+          COGNITO_CLIENT_ID: !Ref CognitoClientId
+          CONNECTION_TTL_SECONDS: !Ref ConnectionTtlSeconds
+          PERSIST_MESSAGE_HISTORY: !Ref PersistMessageHistory
+
+  SendMessageFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      Handler: TeaAWS::TeaAWS.Functions::SendMessageHandler
+      Runtime: dotnet10
+      MemorySize: 512
+      Timeout: 30
+      Policies:
+        - Statement:
+            Effect: Allow
+            Action:
+              - dynamodb:Query
+              - dynamodb:GetItem
+              - dynamodb:PutItem
+              - dynamodb:UpdateItem
+              - dynamodb:DeleteItem
+            Resource:
+              - !GetAtt ChatTable.Arn
+              - !Sub ${ChatTable.Arn}/index/GSI1
+        - Statement:
+            Effect: Allow
+            Action:
+              - execute-api:ManageConnections
+            Resource:
+              - !Sub arn:aws:execute-api:${AWS::Region}:${AWS::AccountId}:${SimpleChatWebSocketApi}/*/POST/@connections/*
+      Environment:
+        Variables:
+          CHAT_TABLE: !Ref ChatTableName
+          COGNITO_USER_POOL_ID: !Ref CognitoUserPoolId
+          COGNITO_REGION: !Ref CognitoRegion
+          COGNITO_CLIENT_ID: !Ref CognitoClientId
+          CONNECTION_TTL_SECONDS: !Ref ConnectionTtlSeconds
+          PERSIST_MESSAGE_HISTORY: !Ref PersistMessageHistory
+
+  HeartbeatFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      Handler: TeaAWS::TeaAWS.Functions::OnHeartbeatHandler
+      Runtime: dotnet10
+      MemorySize: 512
+      Timeout: 30
+      Policies:
+        - Statement:
+            Effect: Allow
+            Action:
+              - dynamodb:UpdateItem
+            Resource:
+              - !GetAtt ChatTable.Arn
+      Environment:
+        Variables:
+          CHAT_TABLE: !Ref ChatTableName
+          COGNITO_USER_POOL_ID: !Ref CognitoUserPoolId
+          COGNITO_REGION: !Ref CognitoRegion
+          COGNITO_CLIENT_ID: !Ref CognitoClientId
+          CONNECTION_TTL_SECONDS: !Ref ConnectionTtlSeconds
+          PERSIST_MESSAGE_HISTORY: !Ref PersistMessageHistory
+
+  SimpleChatWebSocketApi:
+    Type: AWS::ApiGatewayV2::Api
+    Properties:
+      Name: SimpleChatWebSocket
+      ProtocolType: WEBSOCKET
+      RouteSelectionExpression: "$request.body.message"
+
+  ConnectIntegration:
+    Type: AWS::ApiGatewayV2::Integration
+    Properties:
+      ApiId: !Ref SimpleChatWebSocketApi
+      IntegrationType: AWS_PROXY
+      IntegrationUri: !Sub >
+        arn:aws:apigateway:${AWS::Region}:lambda:path/2015-03-31/functions/${OnConnectFunction.Arn}/invocations
+
+  DisconnectIntegration:
+    Type: AWS::ApiGatewayV2::Integration
+    Properties:
+      ApiId: !Ref SimpleChatWebSocketApi
+      IntegrationType: AWS_PROXY
+      IntegrationUri: !Sub >
+        arn:aws:apigateway:${AWS::Region}:lambda:path/2015-03-31/functions/${OnDisconnectFunction.Arn}/invocations
+
+  SendMessageIntegration:
+    Type: AWS::ApiGatewayV2::Integration
+    Properties:
+      ApiId: !Ref SimpleChatWebSocketApi
+      IntegrationType: AWS_PROXY
+      IntegrationUri: !Sub >
+        arn:aws:apigateway:${AWS::Region}:lambda:path/2015-03-31/functions/${SendMessageFunction.Arn}/invocations
+
+  HeartbeatIntegration:
+    Type: AWS::ApiGatewayV2::Integration
+    Properties:
+      ApiId: !Ref SimpleChatWebSocketApi
+      IntegrationType: AWS_PROXY
+      IntegrationUri: !Sub >
+        arn:aws:apigateway:${AWS::Region}:lambda:path/2015-03-31/functions/${HeartbeatFunction.Arn}/invocations
+
+  ConnectRoute:
+    Type: AWS::ApiGatewayV2::Route
+    Properties:
+      ApiId: !Ref SimpleChatWebSocketApi
+      RouteKey: $connect
+      AuthorizationType: NONE
+      Target: !Join [ "/", [ "integrations", !Ref ConnectIntegration ] ]
+
+  DisconnectRoute:
+    Type: AWS::ApiGatewayV2::Route
+    Properties:
+      ApiId: !Ref SimpleChatWebSocketApi
+      RouteKey: $disconnect
+      AuthorizationType: NONE
+      Target: !Join [ "/", [ "integrations", !Ref DisconnectIntegration ] ]
+
+  SendMessageRoute:
+    Type: AWS::ApiGatewayV2::Route
+    Properties:
+      ApiId: !Ref SimpleChatWebSocketApi
+      RouteKey: sendMessage
+      AuthorizationType: NONE
+      Target: !Join [ "/", [ "integrations", !Ref SendMessageIntegration ] ]
+
+  HeartbeatRoute:
+    Type: AWS::ApiGatewayV2::Route
+    Properties:
+      ApiId: !Ref SimpleChatWebSocketApi
+      RouteKey: heartbeat
+      AuthorizationType: NONE
+      Target: !Join [ "/", [ "integrations", !Ref HeartbeatIntegration ] ]
+
+  Deployment:
+    Type: AWS::ApiGatewayV2::Deployment
+    DependsOn:
+      - ConnectRoute
+      - DisconnectRoute
+      - SendMessageRoute
+      - HeartbeatRoute
+    Properties:
+      ApiId: !Ref SimpleChatWebSocketApi
+
+  Stage:
+    Type: AWS::ApiGatewayV2::Stage
+    Properties:
+      ApiId: !Ref SimpleChatWebSocketApi
+      DeploymentId: !Ref Deployment
+      StageName: Prod
+
+  OnConnectPermission:
+    Type: AWS::Lambda::Permission
+    Properties:
+      Action: lambda:InvokeFunction
+      FunctionName: !Ref OnConnectFunction
+      Principal: apigateway.amazonaws.com
+
+  OnDisconnectPermission:
+    Type: AWS::Lambda::Permission
+    Properties:
+      Action: lambda:InvokeFunction
+      FunctionName: !Ref OnDisconnectFunction
+      Principal: apigateway.amazonaws.com
+
+  SendMessagePermission:
+    Type: AWS::Lambda::Permission
+    Properties:
+      Action: lambda:InvokeFunction
+      FunctionName: !Ref SendMessageFunction
+      Principal: apigateway.amazonaws.com
+
+  HeartbeatPermission:
+    Type: AWS::Lambda::Permission
+    Properties:
+      Action: lambda:InvokeFunction
+      FunctionName: !Ref HeartbeatFunction
+      Principal: apigateway.amazonaws.com
+
+Outputs:
+  WebSocketURI:
+    Description: WebSocket endpoint
+    Value: !Sub >
+      wss://${SimpleChatWebSocketApi}.execute-api.${AWS::Region}.amazonaws.com/${Stage}

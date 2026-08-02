@@ -1,12 +1,12 @@
-# Learn more https://docs.github.com/en/get-started/getting-started-with-git/ignoring-files
-
-# dependencies
+# ============================
+# Expo / React Native
+# ============================
 node_modules/
-
-# Expo
 .expo/
+.expo-shared/
 dist/
 web-build/
+expo-env.d.ts
 
 # Native
 *.orig.*
@@ -15,21 +15,117 @@ web-build/
 *.p12
 *.key
 *.mobileprovision
+*.keystore
 
 # Metro
 .metro-health-check*
 
-# debug
+# iOS
+ios/Pods/
+ios/build/
+ios/*.xcworkspace/xcuserdata/
+*.hmap
+*.ipa
+*.xcuserstate
+
+# Android
+android/app/build/
+android/build/
+android/.gradle/
+android/local.properties
+android/*.iml
+android/.idea/
+*.apk
+*.aab
+
+# CocoaPods
+Pods/
+
+# Bundler artifacts
+*.jsbundle
+
+# Debug
 npm-debug.*
 yarn-debug.*
 yarn-error.*
+.pnpm-debug.log*
 
-# macOS
-.DS_Store
-*.pem
+# TypeScript
+*.tsbuildinfo
 
-# local env files
+# Env files
+.env
+.env.local
 .env*.local
 
-# typescript
-*.tsbuildinfo
+# ============================
+# .NET
+# ============================
+bin/
+obj/
+Debug/
+Release/
+x64/
+x86/
+*.dll
+*.pdb
+*.exe
+*.user
+*.suo
+*.userosscache
+*.sln.docstates
+
+# .NET build results
+[Dd]ebug/
+[Dd]ebugPublic/
+[Rr]elease/
+[Rr]eleases/
+[Aa][Rr][Mm]/
+[Aa][Rr][Mm]64/
+[Bb]in/
+[Oo]bj/
+out/
+msbuild.log
+msbuild.err
+msbuild.wrn
+
+# Visual Studio
+.vs/
+*.vspscc
+*.vssscc
+.builds
+*.pidb
+*.svclog
+*.scc
+
+# NuGet
+*.nupkg
+*.snupkg
+**/[Pp]ackages/*
+!**/[Pp]ackages/build/
+*.nuget.props
+*.nuget.targets
+
+# Rider / JetBrains
+.idea/
+*.sln.iml
+
+# ============================
+# AWS / SAM (if relevant to MyAPI)
+# ============================
+.aws-sam/
+samconfig.toml.bak
+
+# ============================
+# OS / Editor junk
+# ============================
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
+Thumbs.db
+*.pem
+.vscode/
+*.log
