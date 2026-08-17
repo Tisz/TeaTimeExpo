@@ -1,7 +1,5 @@
-import { DefaultTheme } from 'styled-components/native';
-
 export type ThemeType = typeof lightTheme;
-export const lightTheme : DefaultTheme = {
+export const lightTheme = {
     primary: '#B5D3FF',
     secondary: '#fff',
     tertiary: '#000',
@@ -15,7 +13,7 @@ export const lightTheme : DefaultTheme = {
     fail: '#EF4444'
 };
 
-export const darkTheme : DefaultTheme = {
+export const darkTheme: ThemeType = {
     primary: '#222831',
     secondary: '#393E46',
     tertiary: '#EEEEEE',

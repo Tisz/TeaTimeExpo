@@ -6,6 +6,7 @@ import { addMessage, setChannelName } from '../redux/slices/chatSlice';
 import { useUploadLocationMutation } from '../redux/api/locationAPI';
 import { UserAPI } from '../redux/api/userAPI';
 import { WebSocketBaseURL } from '../data/constants/DataConstants';
+import { logError } from '../utils/errorLogger';
 
 const MIN_DISTANCE_METERS = 200;
 const SUBURB_STABILITY_MS = 75_000;
@@ -141,61 +142,70 @@ export const useSuburbSocket = () => {
       return;
     }
 
-    const token = await UserAPI.getStoredToken();
-    if (!token) {
-      setSocketStatus('error');
-      return;
-    }
-
-    clearReconnectTimer();
-    clearHeartbeat();
-
-    const query = `suburb=${encodeURIComponent(normalizedSuburb)}&token=${encodeURIComponent(token)}`;
-    const ws = new WebSocket(`${WebSocketBaseURL}?${query}`);
-    socketRef.current = ws;
-    setSocketStatus('connecting');
-
-    ws.onopen = () => {
-      reconnectAttemptRef.current = 0;
-      setSocketStatus('connected');
-      startHeartbeat();
-    };
-
-    ws.onmessage = (event) => {
-      try {
-        const parsed = JSON.parse(event.data);
-        const messageText = parsed?.message;
-        if (!messageText || typeof messageText !== 'string') {
-          return;
-        }
-
-        dispatch(
-          addMessage({
-            username: parsed.userId ?? 'Someone',
-            message: messageText,
-            messageTime: parsed.messageTime ?? new Date().toISOString(),
-            sender: 'other',
-          })
-        );
-      } catch {
-        // Ignore malformed payloads rather than tearing down the socket.
+    try {
+      const token = await UserAPI.getStoredToken();
+      if (!token) {
+        setSocketStatus('error');
+        logError('SuburbSocket', 'connectSocket missing token', new Error('No stored auth token'), {
+          suburb: normalizedSuburb,
+        });
+        return;
       }
-    };
 
-    ws.onerror = () => {
-      setSocketStatus('error');
-    };
-
-    ws.onclose = () => {
+      clearReconnectTimer();
       clearHeartbeat();
 
-      const switched = isClosingForSwitchRef.current;
-      isClosingForSwitchRef.current = false;
+      const query = `suburb=${encodeURIComponent(normalizedSuburb)}&token=${encodeURIComponent(token)}`;
+      const ws = new WebSocket(`${WebSocketBaseURL}?${query}`);
+      socketRef.current = ws;
+      setSocketStatus('connecting');
 
-      if (!switched && appStateRef.current === 'active') {
-        scheduleReconnect(normalizedSuburb);
-      }
-    };
+      ws.onopen = () => {
+        reconnectAttemptRef.current = 0;
+        setSocketStatus('connected');
+        startHeartbeat();
+      };
+
+      ws.onmessage = (event) => {
+        try {
+          const parsed = JSON.parse(event.data);
+          const messageText = parsed?.message;
+          if (!messageText || typeof messageText !== 'string') {
+            return;
+          }
+
+          dispatch(
+            addMessage({
+              username: parsed.userId ?? 'Someone',
+              message: messageText,
+              messageTime: parsed.messageTime ?? new Date().toISOString(),
+              sender: 'other',
+            })
+          );
+        } catch (error) {
+          logError('SuburbSocket', 'ws.onmessage', error, { suburb: normalizedSuburb });
+        }
+      };
+
+      ws.onerror = (event) => {
+        setSocketStatus('error');
+        logError('SuburbSocket', 'ws.onerror', event, { suburb: normalizedSuburb });
+      };
+
+      ws.onclose = () => {
+        clearHeartbeat();
+
+        const switched = isClosingForSwitchRef.current;
+        isClosingForSwitchRef.current = false;
+
+        if (!switched && appStateRef.current === 'active') {
+          scheduleReconnect(normalizedSuburb);
+        }
+      };
+    } catch (error) {
+      setSocketStatus('error');
+      logError('SuburbSocket', 'connectSocket', error, { suburb: normalizedSuburb });
+    }
   }, [clearHeartbeat, clearReconnectTimer, dispatch, scheduleReconnect, startHeartbeat]);
 
   useEffect(() => {
@@ -215,7 +225,12 @@ export const useSuburbSocket = () => {
     dispatch(setChannelName(normalizedSuburb));
 
     disconnectSocket();
-    await connectSocket(normalizedSuburb);
+    try {
+      await connectSocket(normalizedSuburb);
+    } catch (error) {
+      logError('SuburbSocket', 'switchSuburb', error, { suburb: normalizedSuburb });
+      setSocketStatus('error');
+    }
   }, [connectSocket, disconnectSocket, dispatch]);
 
   // Reverse-geocode the current coordinates using the backend location API.
@@ -248,6 +263,10 @@ export const useSuburbSocket = () => {
     try {
       observedSuburb = await resolveSuburb(latitude, longitude);
     } catch (error: any) {
+      logError('SuburbSocket', 'handleLocation resolveSuburb', error, {
+        latitude,
+        longitude,
+      });
       setLocationError(error?.message ?? 'Failed to resolve suburb');
       return;
     }
@@ -285,27 +304,39 @@ export const useSuburbSocket = () => {
     let subscriber: Location.LocationSubscription | null = null;
 
     const start = async () => {
-      // The app needs foreground location permission before it can determine
-      // the user's suburb and join the corresponding room.
-      const permission = await Location.requestForegroundPermissionsAsync();
-      if (permission.status !== 'granted') {
-        setLocationError('Location permission denied');
-        return;
-      }
-
-      const current = await Location.getCurrentPositionAsync({});
-      await handleLocation(current.coords.latitude, current.coords.longitude);
-
-      subscriber = await Location.watchPositionAsync(
-        {
-          accuracy: Location.Accuracy.Balanced,
-          distanceInterval: 50,
-          timeInterval: 20_000,
-        },
-        async (next) => {
-          await handleLocation(next.coords.latitude, next.coords.longitude);
+      try {
+        // The app needs foreground location permission before it can determine
+        // the user's suburb and join the corresponding room.
+        const permission = await Location.requestForegroundPermissionsAsync();
+        if (permission.status !== 'granted') {
+          setLocationError('Location permission denied');
+          return;
         }
-      );
+
+        const current = await Location.getCurrentPositionAsync({});
+        await handleLocation(current.coords.latitude, current.coords.longitude);
+
+        subscriber = await Location.watchPositionAsync(
+          {
+            accuracy: Location.Accuracy.Balanced,
+            distanceInterval: 50,
+            timeInterval: 20_000,
+          },
+          async (next) => {
+            try {
+              await handleLocation(next.coords.latitude, next.coords.longitude);
+            } catch (error) {
+              logError('SuburbSocket', 'watchPositionAsync callback', error, {
+                latitude: next.coords.latitude,
+                longitude: next.coords.longitude,
+              });
+            }
+          }
+        );
+      } catch (error) {
+        logError('SuburbSocket', 'start location tracking', error);
+        setLocationError('Unable to start location tracking');
+      }
     };
 
     // If the app returns to the foreground after the socket dropped, try to
@@ -314,14 +345,20 @@ export const useSuburbSocket = () => {
       appStateRef.current = nextState;
 
       if (nextState === 'active') {
-        const suburb = currentSuburbRef.current;
-        if (suburb && socketRef.current?.readyState !== WebSocket.OPEN) {
-          await connectSocket(suburb);
+        try {
+          const suburb = currentSuburbRef.current;
+          if (suburb && socketRef.current?.readyState !== WebSocket.OPEN) {
+            await connectSocket(suburb);
+          }
+        } catch (error) {
+          logError('SuburbSocket', 'appState active reconnect', error, {
+            suburb: currentSuburbRef.current,
+          });
         }
       }
     });
 
-    start();
+    void start();
 
     return () => {
       appStateSubscription.remove();
@@ -347,12 +384,18 @@ export const useSuburbSocket = () => {
       return false;
     }
 
-    socketRef.current.send(
-      JSON.stringify({
-        message: 'sendMessage',
-        data: payload,
-      })
-    );
+    try {
+      socketRef.current.send(
+        JSON.stringify({
+          message: 'sendMessage',
+          data: payload,
+        })
+      );
+    } catch (error) {
+      logError('SuburbSocket', 'sendMessage', error, { suburb: currentSuburbRef.current });
+      setSocketStatus('error');
+      return false;
+    }
 
     dispatch(
       addMessage({

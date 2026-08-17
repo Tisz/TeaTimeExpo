@@ -1,10 +1,9 @@
-import React, { useEffect } from 'react';
+import React from 'react';
 import MainContainer from '../components/Containers/MainContainer';
 import BigText from '../components/Texts/BigText';
 import InfoCard from '../components/Cards/InfoCard';
 import styled from 'styled-components/native'
 import { ScreenHeight } from '../components/shared';
-import { useLocationChannel } from '../hooks/useLocationChannel';
 
 const TopBackground = styled.View`
     background-color: ${(props) => props.theme.darkGrey};
@@ -17,13 +16,6 @@ const TopBackground = styled.View`
 
 
 const Dashboard = () => {
-
-      const { requestAndUpload, isLoading, error } = useLocationChannel();
-
-    useEffect(() => {
-        requestAndUpload();
-    }, []);
-
     return <MainContainer style={{paddingTop: 0, paddingLeft: 0, paddingRight: 0}}>
         <TopBackground/>
         <MainContainer style={{backgroundColor: 'transparent'}}>

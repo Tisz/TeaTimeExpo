@@ -39,8 +39,17 @@ const RightIcon = styled.TouchableOpacity`
 `;
 
 
+interface StyledTextInputProps {
+    icon?: string | null;
+    label?: string;
+    isPassword?: boolean;
+    overrideHeight?: number;
+    overrideFontSize?: number;
+    [key: string]: any;
+}
+
 const StyledTextInput = ({icon = null, label, isPassword = false,
-        overrideHeight=60, overrideFontSize=16, ...props}) => {
+        overrideHeight=60, overrideFontSize=16, ...props}: StyledTextInputProps) => {
     const theme = useTheme() as ThemeType;
     const [inputBackgroundColor, setInputBackgroundColor] = useState(theme.primary);
     const [hidePassword, setHidePassword] = useState(true);

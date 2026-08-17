@@ -1,7 +1,7 @@
 export const ApiURL: string = "https://myapi.com";
 export const APIVersion: string = "/v1";
 
-export const APIBaseURL: string = `${ApiURL}${APIVersion}`;
+export const ApiFullURL: string = `${ApiURL}${APIVersion}`;
 
 //Web socket URL from AWS
-export const WebSocketBaseURL: string = "wss://your-api-id.execute-api.ap-southeast-2.amazonaws.com/Prod";
+export const WebSocketBaseURL: string = "wss://kv64fohoj8.execute-api.ap-southeast-2.amazonaws.com/Prod/";

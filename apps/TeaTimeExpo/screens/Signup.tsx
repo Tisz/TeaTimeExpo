@@ -13,6 +13,7 @@ import StyledTextInput from '../components/Inputs/StyledTextInput';
 import MessageBox from '../components/Texts/MessageBox';
 import RegularButton from '../components/Buttons/RegularButton';
 import PressableText from '../components/Texts/PressableText';
+import { UserAPI } from '../redux/api/userAPI';
 
 const Signup = ({navigation}) => {
     const theme = useTheme() as ThemeType;
@@ -27,17 +28,25 @@ const Signup = ({navigation}) => {
         try 
         {
             setMessage(null);
+            setIsSuccessMessage(false);
 
-            //call backend
+            await UserAPI.signup({
+                email: credentials.email,
+                password: credentials.password,
+                firstName: credentials.firstName,
+                lastName: credentials.lastName,
+            });
 
-            //next page
+            setIsSuccessMessage(true);
+            setMessage('Verification code sent. Check your email.');
 
-            moveTo('EmailVerification')
+            moveTo('EmailVerification', { email: credentials.email.trim().toLowerCase() });
 
             setSubmitting(false);
         }
-        catch (error) {
-            setMessage("Signup Failed: " + error.Message);
+        catch (error: any) {
+            setIsSuccessMessage(false);
+            setMessage("Signup Failed: " + (error?.message ?? 'Unknown error'));
             setSubmitting(false);
         }
     }

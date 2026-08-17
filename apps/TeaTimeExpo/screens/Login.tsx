@@ -37,14 +37,13 @@ const Login = ({navigation, route}) => {
             const token = await UserAPI.login({
                 email: credentials.email,
                 password: credentials.password,
-                expoToken: '',
             });
 
             setIsSuccessMessage(true);
             setMessage("Success! Loading dashboard");
 
             setAuthState({
-                id: credentials.email,
+                id: credentials.email.trim().toLowerCase(),
                 token,
                 signedIn: true,
             });

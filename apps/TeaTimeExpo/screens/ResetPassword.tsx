@@ -16,6 +16,7 @@ import RowContainer from '../components/Containers/RowContainer';
 import StyledCodeInput from '../components/Inputs/StyledCodeInput';
 import ResendTimer from '../components/Timers/ResendTimer';
 import IconHeader from '../components/Icons/IconHeader';
+import { UserAPI } from '../redux/api/userAPI';
 
 import styled from 'styled-components/native'
 import MessageModel from '../components/Modals/MessageModal';
@@ -26,9 +27,10 @@ const FormWrapper = styled.View`
     }}
 `
 
-const ResetPassword = ({navigation}) => {
+const ResetPassword = ({navigation, route}) => {
     const theme = useTheme() as ThemeType;
-    const MAX_CODE_LENGTH = 4;
+    const email = route?.params?.email ?? '';
+    const MAX_CODE_LENGTH = 6;
     const [message, setMessage] = useState('');
     const [isSuccessMessage, setIsSuccessMessage] = useState(false);
     const [code, setCode] = useState('')
@@ -44,29 +46,47 @@ const ResetPassword = ({navigation}) => {
     }
 
     const handleNewPassword = async (passwords, setSubmitting) => {
+        if (!email) {
+            setMessage('Missing email. Start reset from Forgot Password.');
+            setSubmitting(false);
+            return;
+        }
+
         try 
         {
             setMessage(null);
+            setIsSuccessMessage(false);
 
-            //call backend
+            await UserAPI.confirmPasswordReset({
+                email,
+                code,
+                newPassword: passwords.newPassword,
+            });
+
+            setIsSuccessMessage(true);
+            setSubmitting(false);
             return showModal('success', 'Reset Complete', 'Your password has been reset', 'Go to login');
-
-
-            setSubmitting(false);
         }
-        catch (error) {
-            setMessage("Login Failed: " + error.Message);
+        catch (error: any) {
+            setIsSuccessMessage(false);
+            setMessage("Reset Failed: " + (error?.message ?? 'Unknown error'));
             setSubmitting(false);
-            return showModal('failed', 'Reset Failed', 'Your code was incorrect. Please try again.', 'Close');
+            return showModal('failed', 'Reset Failed', error?.message ?? 'Your code was incorrect. Please try again.', 'Close');
         }
     }
 
     const resendEmail = async (triggerTimer) => {
+        if (!email) {
+            setMessage('Missing email. Start reset from Forgot Password.');
+            setResendStatus('Failed!');
+            return;
+        }
+
         try 
         {
             setResendingEmail(true);
-            //backend request
-            //setResendStatus() to failed or sent
+            await UserAPI.requestPasswordReset(email);
+            setResendStatus('Sent');
 
             setActiveResend(false);
             setResendingEmail(false);
@@ -77,8 +97,8 @@ const ResetPassword = ({navigation}) => {
                 setActiveResend(false);
             }, 5000)
         }
-        catch (error) {
-            setMessage("Sending Failed: " + error.Message);
+        catch (error: any) {
+            setMessage("Sending Failed: " + (error?.message ?? 'Unknown error'));
             setResendingEmail(false);
             setResendStatus('Failed!');
         }
@@ -156,7 +176,7 @@ const ResetPassword = ({navigation}) => {
                             editable={pinReady}
                         />
 
-<                       StyledTextInput 
+                        <StyledTextInput 
                             label="Verify Password" 
                             icon="lock-open-variant" 
                             placeholder="* * * * * * * *" 
@@ -171,10 +191,10 @@ const ResetPassword = ({navigation}) => {
                         <MessageBox success={isSuccessMessage} style={{marginBottom: 20}}>
                             { message  || " "}
                         </MessageBox>
-                        {!isSubmitting && <RegularButton disabled={!pinReady} onPress={handleSubmit}>Login</RegularButton>}
-                        {isSubmitting && (<RegularButton disabled={true}><ActivityIndicator size="small" color={theme.primary}></ActivityIndicator>Login</RegularButton>)}
+                        {!isSubmitting && <RegularButton disabled={!pinReady} onPress={handleSubmit}>Reset Password</RegularButton>}
+                        {isSubmitting && (<RegularButton disabled={true}><ActivityIndicator size="small" color={theme.primary}></ActivityIndicator>Reset Password</RegularButton>)}
 
-                        <PressableText style={{marginTop: 15}} onPress={() => {}}>Back</PressableText>
+                        <PressableText style={{marginTop: 15}} onPress={() => {moveTo('Login')}}>Back</PressableText>
                     </FormWrapper>
                     </>
                 )}

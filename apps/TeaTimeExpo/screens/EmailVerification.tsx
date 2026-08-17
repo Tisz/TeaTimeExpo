@@ -9,11 +9,13 @@ import ResendTimer from "../components/Timers/ResendTimer";
 import MessageModel from "../components/Modals/MessageModal";
 import { useTheme } from "styled-components/native";
 import { ThemeType } from "../components/Colors/Colors";
+import { UserAPI } from "../redux/api/userAPI";
 
-const EmailVerification = ({ navigation }) => {
+const EmailVerification = ({ navigation, route }) => {
   const theme = useTheme() as ThemeType;
+  const email = route?.params?.email ?? "";
 
-  const MAX_CODE_LENGTH = 4;
+  const MAX_CODE_LENGTH = 6;
   const [code, setCode] = useState("");
   const [pinReady, setPinReady] = useState(false);
 
@@ -49,10 +51,19 @@ const EmailVerification = ({ navigation }) => {
     setModalVisibile(true);
   };
 
-  const handleEmailVerification = async (credentials, setSubmitting) => {
+  const handleEmailVerification = async () => {
+    if (!email) {
+      return showModal(
+        "failed",
+        "Missing Email",
+        "Go back to signup and provide your email again.",
+        "Close"
+      );
+    }
+
     try {
       setVerifying(true);
-      //backend call
+      await UserAPI.confirmSignup({ email, code });
       setVerifying(false);
       return showModal(
         "success",
@@ -60,22 +71,27 @@ const EmailVerification = ({ navigation }) => {
         "Your account has been verified",
         "Go to login"
       );
-    } catch (error) {
+    } catch (error: any) {
       setVerifying(false);
       return showModal(
         "failed",
         "Verification Failed",
-        "Your code was incorrect. Please try again.",
+        error?.message ?? "Your code was incorrect. Please try again.",
         "Close"
       );
     }
   };
 
   const resendEmail = async (triggerTimer) => {
+    if (!email) {
+      setResendStatus("Failed!");
+      return;
+    }
+
     try {
       setResendingEmail(true);
-      //backend request
-      //setResendStatus() to failed or sent
+      await UserAPI.resendSignupCode(email);
+      setResendStatus("Sent");
 
       setActiveResend(false);
       setResendingEmail(false);
@@ -85,7 +101,7 @@ const EmailVerification = ({ navigation }) => {
         setResendStatus("Resend");
         setActiveResend(false);
       }, 5000);
-    } catch (error) {
+    } catch {
       setResendingEmail(false);
       setResendStatus("Failed!");
     }
@@ -101,7 +117,7 @@ const EmailVerification = ({ navigation }) => {
         />
 
         <RegularText style={{ marginBottom: 25, textAlign: "center" }}>
-          Enter the 4-digit code sent to your email
+          Enter the 6-digit code sent to your email
         </RegularText>
 
         <StyledCodeInput

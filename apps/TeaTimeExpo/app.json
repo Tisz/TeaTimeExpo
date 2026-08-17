@@ -29,6 +29,11 @@
     "plugins": [
       "expo-localization",
       "expo-status-bar"
-    ]
+    ],
+    "extra": {
+      "cognitoRegion": "ap-southeast-2",
+      "cognitoUserPoolId": "ap-southeast-2_7xMoJ8i4B",
+      "cognitoUserPoolClientId": "3k7m534msd10a7cjmlbsc3caf9"
+    }
   }
 }

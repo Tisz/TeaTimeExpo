@@ -30,7 +30,7 @@ export function AppNav() {
 
   const getUserToken = async () => {
     try {
-      const token = await UserAPI.getStoredToken();
+      const token = await UserAPI.hydrateSession();
       if (token) {
         setAuthState((previous) => ({
           ...previous,
