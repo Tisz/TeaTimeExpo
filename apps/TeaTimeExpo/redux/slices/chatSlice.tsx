@@ -3,12 +3,14 @@ import { ChatMessage } from '../../data/types/ChatMessage';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 
 interface ChatState {
-    channelName: string;
+    roomId: string;
+    roomDisplay: string;
     chatHistory: ChatMessage[];
 }
 
 const initialState: ChatState = {
-    channelName: "general",
+    roomId: "",
+    roomDisplay: "",
     chatHistory: [],
 };
 
@@ -16,8 +18,9 @@ const chatSlice = createSlice({
     name: 'chat',
     initialState,
     reducers: {
-        setChannelName: (state, action: PayloadAction<string>) => {
-            state.channelName = action.payload;
+        setRoom: (state, action: PayloadAction<{ roomId: string; display: string }>) => {
+            state.roomId = action.payload.roomId;
+            state.roomDisplay = action.payload.display;
             state.chatHistory = []; // clear history on channel switch
         },
         addMessage: (state, action: PayloadAction<ChatMessage>) => {
@@ -29,5 +32,5 @@ const chatSlice = createSlice({
     },
 });
 
-export const { setChannelName, addMessage, clearChatHistory } = chatSlice.actions;
+export const { setRoom, addMessage, clearChatHistory } = chatSlice.actions;
 export default chatSlice.reducer;

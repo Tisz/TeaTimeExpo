@@ -19,7 +19,8 @@ public class FunctionsTest
         Mock<IAmazonDynamoDB> ddb,
         Mock<IAmazonApiGatewayManagementApi> api,
         Mock<IJwtTokenValidator> validator,
-        bool persistMessageHistory = true)
+        bool persistMessageHistory = true,
+        ILocalityResolver? localityResolver = null)
     {
         return new Functions(
             ddb.Object,
@@ -27,11 +28,12 @@ public class FunctionsTest
             TableName,
             validator.Object,
             connectionTtlSeconds: 900,
-            persistMessageHistory: persistMessageHistory);
+            persistMessageHistory: persistMessageHistory,
+            localityResolver: localityResolver);
     }
 
     [Fact]
-    public async Task TestConnect_PersistsVerifiedUserAndSuburb()
+    public async Task TestConnect_PersistsVerifiedUserAndRoom()
     {
         var mockDdbClient = new Mock<IAmazonDynamoDB>();
         var mockApiGatewayClient = new Mock<IAmazonApiGatewayManagementApi>();
@@ -52,8 +54,8 @@ public class FunctionsTest
                 Assert.Equal("META", request.Item[Functions.SK].S);
                 Assert.Equal(connectionId, request.Item[Functions.ConnectionIdField].S);
                 Assert.Equal(verifiedUserId, request.Item[Functions.UserIdField].S);
-                Assert.Equal("sydney", request.Item[Functions.SuburbField].S);
-                Assert.Equal("ROOM#sydney", request.Item[Functions.GSI1PK].S);
+                Assert.Equal("AU#NSW#SYDNEY", request.Item[Functions.RoomIdField].S);
+                Assert.Equal("ROOM#AU#NSW#SYDNEY", request.Item[Functions.GSI1PK].S);
             })
             .ReturnsAsync(new PutItemResponse());
 
@@ -67,7 +69,7 @@ public class FunctionsTest
             },
             QueryStringParameters = new Dictionary<string, string>
             {
-                { "suburb", "sydney" }
+                { "roomId", "AU#NSW#SYDNEY" }
             },
             RequestContext = new APIGatewayProxyRequest.ProxyRequestContext
             {
@@ -91,7 +93,7 @@ public class FunctionsTest
         {
             QueryStringParameters = new Dictionary<string, string>
             {
-                { "suburb", "sydney" }
+                { "roomId", "AU#NSW#SYDNEY" }
             },
             RequestContext = new APIGatewayProxyRequest.ProxyRequestContext
             {
@@ -102,6 +104,72 @@ public class FunctionsTest
         var response = await functions.OnConnectHandler(request, new TestLambdaContext());
         Assert.Equal(401, response.StatusCode);
         mockDdbClient.Verify(d => d.PutItemAsync(It.IsAny<PutItemRequest>(), It.IsAny<CancellationToken>()), Times.Never);
+    }
+
+    [Fact]
+    public async Task SetLocation_RejectsMissingToken()
+    {
+        var functions = BuildFunctions(
+            new Mock<IAmazonDynamoDB>(),
+            new Mock<IAmazonApiGatewayManagementApi>(),
+            new Mock<IJwtTokenValidator>());
+
+        var response = await functions.SetLocationHandler(new APIGatewayProxyRequest
+        {
+            Body = "{\"latitude\":-33.8688,\"longitude\":151.2093}"
+        }, new TestLambdaContext());
+
+        Assert.Equal(401, response.StatusCode);
+    }
+
+    [Fact]
+    public async Task SetLocation_RejectsInvalidCoordinates()
+    {
+        var validator = new Mock<IJwtTokenValidator>();
+        validator
+            .Setup(v => v.ValidateAsync("token-123", It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new TokenValidationResult(true, "user-1", null));
+
+        var functions = BuildFunctions(
+            new Mock<IAmazonDynamoDB>(),
+            new Mock<IAmazonApiGatewayManagementApi>(),
+            validator);
+
+        var response = await functions.SetLocationHandler(new APIGatewayProxyRequest
+        {
+            Headers = new Dictionary<string, string> { ["Authorization"] = "Bearer token-123" },
+            Body = "{\"latitude\":91,\"longitude\":151.2093}"
+        }, new TestLambdaContext());
+
+        Assert.Equal(400, response.StatusCode);
+    }
+
+    [Fact]
+    public async Task SetLocation_ReturnsResolvedLocality()
+    {
+        var validator = new Mock<IJwtTokenValidator>();
+        validator
+            .Setup(v => v.ValidateAsync("token-123", It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new TokenValidationResult(true, "user-1", null));
+        var localityResolver = new Mock<ILocalityResolver>();
+        localityResolver
+            .Setup(resolver => resolver.ResolveAsync(-33.8688, 151.2093, It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new LocalityInfo("AU#NSW#SYDNEY", "Sydney", "NSW", "AU"));
+
+        var functions = BuildFunctions(
+            new Mock<IAmazonDynamoDB>(),
+            new Mock<IAmazonApiGatewayManagementApi>(),
+            validator,
+            localityResolver: localityResolver.Object);
+
+        var response = await functions.SetLocationHandler(new APIGatewayProxyRequest
+        {
+            Headers = new Dictionary<string, string> { ["Authorization"] = "Bearer token-123" },
+            Body = "{\"latitude\":-33.8688,\"longitude\":151.2093}"
+        }, new TestLambdaContext());
+
+        Assert.Equal(200, response.StatusCode);
+        Assert.Equal("{\"roomId\":\"AU#NSW#SYDNEY\",\"suburb\":\"Sydney\",\"state\":\"NSW\",\"country\":\"AU\"}", response.Body);
     }
 
     [Fact]
@@ -137,7 +205,7 @@ public class FunctionsTest
     }
 
     [Fact]
-    public async Task TestSendMessage_BroadcastsWithinSuburb_AndCleansGoneConnections()
+    public async Task TestSendMessage_BroadcastsWithinRoom_AndCleansGoneConnections()
     {
         var mockDdbClient = new Mock<IAmazonDynamoDB>();
         var mockApiGatewayClient = new Mock<IAmazonApiGatewayManagementApi>();
@@ -151,7 +219,7 @@ public class FunctionsTest
                 Item = new Dictionary<string, AttributeValue>
                 {
                     { Functions.UserIdField, new AttributeValue { S = "user-1" } },
-                    { Functions.SuburbField, new AttributeValue { S = "sydney" } }
+                    { Functions.RoomIdField, new AttributeValue { S = "AU#NSW#SYDNEY" } }
                 }
             });
 
@@ -161,7 +229,7 @@ public class FunctionsTest
             {
                 Assert.Equal(TableName, request.TableName);
                 Assert.Equal("GSI1", request.IndexName);
-                Assert.Equal("ROOM#sydney", request.ExpressionAttributeValues[":room"].S);
+                Assert.Equal("ROOM#AU#NSW#SYDNEY", request.ExpressionAttributeValues[":room"].S);
             })
             .ReturnsAsync(new QueryResponse
             {
@@ -189,7 +257,7 @@ public class FunctionsTest
             .Callback<PutItemRequest, CancellationToken>((request, _) =>
             {
                 Assert.Equal(TableName, request.TableName);
-                Assert.Equal("ROOM#sydney", request.Item[Functions.PK].S);
+                Assert.Equal("ROOM#AU#NSW#SYDNEY", request.Item[Functions.PK].S);
             })
             .ReturnsAsync(new PutItemResponse());
 

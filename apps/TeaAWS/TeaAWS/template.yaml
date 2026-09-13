@@ -36,6 +36,13 @@ Parameters:
       - "true"
       - "false"
 
+  PlaceIndexName:
+    Type: String
+    Default: TeaTimePlaces
+    MinLength: 1
+    MaxLength: 100
+    Description: Name for the Amazon Location place index used to resolve coordinates to suburbs.
+
 Resources:
 
   ChatTable:
@@ -69,6 +76,15 @@ Resources:
       TimeToLiveSpecification:
         AttributeName: expiresAt
         Enabled: true
+
+  PlaceIndex:
+    Type: AWS::Location::PlaceIndex
+    Properties:
+      IndexName: !Ref PlaceIndexName
+      Description: Tea Time reverse-geocoding place index
+      DataSource: Esri
+      DataSourceConfiguration:
+        IntendedUse: SingleUse
 
   OnConnectFunction:
     Type: AWS::Serverless::Function
@@ -172,6 +188,35 @@ Resources:
           COGNITO_CLIENT_ID: !Ref CognitoClientId
           CONNECTION_TTL_SECONDS: !Ref ConnectionTtlSeconds
           PERSIST_MESSAGE_HISTORY: !Ref PersistMessageHistory
+
+  SetLocationFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      Handler: TeaAWS::TeaAWS.Functions::SetLocationHandler
+      Runtime: dotnet10
+      MemorySize: 512
+      Timeout: 30
+      Policies:
+        - Statement:
+            Effect: Allow
+            Action:
+              - geo:SearchPlaceIndexForPosition
+            Resource: !GetAtt PlaceIndex.Arn
+      Environment:
+        Variables:
+          CHAT_TABLE: !Ref ChatTableName
+          COGNITO_USER_POOL_ID: !Ref CognitoUserPoolId
+          COGNITO_REGION: !Ref CognitoRegion
+          COGNITO_CLIENT_ID: !Ref CognitoClientId
+          CONNECTION_TTL_SECONDS: !Ref ConnectionTtlSeconds
+          PERSIST_MESSAGE_HISTORY: !Ref PersistMessageHistory
+          PLACE_INDEX_NAME: !Ref PlaceIndexName
+      Events:
+        Location:
+          Type: Api
+          Properties:
+            Path: /location
+            Method: post
 
   SimpleChatWebSocketApi:
     Type: AWS::ApiGatewayV2::Api
@@ -286,6 +331,10 @@ Resources:
       Principal: apigateway.amazonaws.com
 
 Outputs:
+  LocationApiUrl:
+    Description: Location API base URL
+    Value: !Sub https://${ServerlessRestApi}.execute-api.${AWS::Region}.amazonaws.com/Prod
+
   WebSocketURI:
     Description: WebSocket endpoint
     Value: !Sub >

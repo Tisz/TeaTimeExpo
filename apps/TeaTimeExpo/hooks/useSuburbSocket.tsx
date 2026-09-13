@@ -2,7 +2,7 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { AppState, AppStateStatus } from 'react-native';
 import * as Location from 'expo-location';
 import { useDispatch } from 'react-redux';
-import { addMessage, setChannelName } from '../redux/slices/chatSlice';
+import { addMessage, setRoom } from '../redux/slices/chatSlice';
 import { useUploadLocationMutation } from '../redux/api/locationAPI';
 import { UserAPI } from '../redux/api/userAPI';
 import { WebSocketBaseURL } from '../data/constants/DataConstants';
@@ -16,7 +16,14 @@ const MAX_BACKOFF_MS = 30_000;
 
 type SocketStatus = 'idle' | 'connecting' | 'connected' | 'reconnecting' | 'error';
 
-type PendingSuburb = {
+type Locality = {
+  roomId: string;
+  suburb: string;
+  state: string;
+  country: string;
+};
+
+type PendingRoom = {
   value: string;
   firstSeenAtMs: number;
 };
@@ -43,7 +50,8 @@ const distanceMeters = (
   return earthRadiusMeters * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
 };
 
-const normalizeSuburb = (value?: string): string => (value ?? '').trim().toLowerCase();
+const normalizeRoomId = (value?: string): string => (value ?? '').trim().toUpperCase();
+const localityDisplay = (locality: Locality): string => `${locality.suburb}, ${locality.state}`;
 
 const addJitter = (delayMs: number): number => {
   const jitter = Math.floor(Math.random() * 500);
@@ -60,7 +68,7 @@ export const useSuburbSocket = () => {
   const [uploadLocation] = useUploadLocationMutation();
 
   const [socketStatus, setSocketStatus] = useState<SocketStatus>('idle');
-  const [activeSuburb, setActiveSuburb] = useState<string>('');
+  const [activeRoomId, setActiveRoomId] = useState<string>('');
   const [locationError, setLocationError] = useState<string>('');
 
   const socketRef = useRef<WebSocket | null>(null);
@@ -68,11 +76,11 @@ export const useSuburbSocket = () => {
   const heartbeatTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const reconnectAttemptRef = useRef<number>(0);
   const appStateRef = useRef<AppStateStatus>(AppState.currentState);
-  const connectSocketRef = useRef<(suburb: string) => Promise<void>>(async () => {});
+  const connectSocketRef = useRef<(roomId: string) => Promise<void>>(async () => {});
   const isClosingForSwitchRef = useRef<boolean>(false);
-  const pendingSuburbRef = useRef<PendingSuburb | null>(null);
+  const pendingRoomRef = useRef<PendingRoom | null>(null);
   const lastCoordsRef = useRef<{ latitude: number; longitude: number } | null>(null);
-  const currentSuburbRef = useRef<string>('');
+  const currentRoomIdRef = useRef<string>('');
 
   const clearReconnectTimer = useCallback(() => {
     if (reconnectTimerRef.current) {
@@ -103,8 +111,8 @@ export const useSuburbSocket = () => {
 
   // Retry with exponential backoff so we do not hammer the WebSocket endpoint
   // during transient network loss or app backgrounding.
-  const scheduleReconnect = useCallback((suburb: string) => {
-    if (!suburb || reconnectTimerRef.current) {
+  const scheduleReconnect = useCallback((roomId: string) => {
+    if (!roomId || reconnectTimerRef.current) {
       return;
     }
 
@@ -117,7 +125,7 @@ export const useSuburbSocket = () => {
     reconnectTimerRef.current = setTimeout(async () => {
       reconnectTimerRef.current = null;
       reconnectAttemptRef.current = attempt + 1;
-      await connectSocketRef.current(suburb);
+      await connectSocketRef.current(roomId);
     }, delay);
   }, []);
 
@@ -136,9 +144,9 @@ export const useSuburbSocket = () => {
 
   // Opens the websocket for a specific suburb. The token comes from local
   // storage and is sent so the backend can verify the Cognito identity.
-  const connectSocket = useCallback(async (suburb: string) => {
-    const normalizedSuburb = normalizeSuburb(suburb);
-    if (!normalizedSuburb) {
+  const connectSocket = useCallback(async (roomId: string) => {
+    const normalizedRoomId = normalizeRoomId(roomId);
+    if (!normalizedRoomId) {
       return;
     }
 
@@ -147,7 +155,7 @@ export const useSuburbSocket = () => {
       if (!token) {
         setSocketStatus('error');
         logError('SuburbSocket', 'connectSocket missing token', new Error('No stored auth token'), {
-          suburb: normalizedSuburb,
+          roomId: normalizedRoomId,
         });
         return;
       }
@@ -155,7 +163,7 @@ export const useSuburbSocket = () => {
       clearReconnectTimer();
       clearHeartbeat();
 
-      const query = `suburb=${encodeURIComponent(normalizedSuburb)}&token=${encodeURIComponent(token)}`;
+      const query = `roomId=${encodeURIComponent(normalizedRoomId)}&token=${encodeURIComponent(token)}`;
       const ws = new WebSocket(`${WebSocketBaseURL}?${query}`);
       socketRef.current = ws;
       setSocketStatus('connecting');
@@ -183,13 +191,13 @@ export const useSuburbSocket = () => {
             })
           );
         } catch (error) {
-          logError('SuburbSocket', 'ws.onmessage', error, { suburb: normalizedSuburb });
+          logError('SuburbSocket', 'ws.onmessage', error, { roomId: normalizedRoomId });
         }
       };
 
       ws.onerror = (event) => {
         setSocketStatus('error');
-        logError('SuburbSocket', 'ws.onerror', event, { suburb: normalizedSuburb });
+        logError('SuburbSocket', 'ws.onerror', event, { roomId: normalizedRoomId });
       };
 
       ws.onclose = () => {
@@ -199,12 +207,12 @@ export const useSuburbSocket = () => {
         isClosingForSwitchRef.current = false;
 
         if (!switched && appStateRef.current === 'active') {
-          scheduleReconnect(normalizedSuburb);
+          scheduleReconnect(normalizedRoomId);
         }
       };
     } catch (error) {
       setSocketStatus('error');
-      logError('SuburbSocket', 'connectSocket', error, { suburb: normalizedSuburb });
+      logError('SuburbSocket', 'connectSocket', error, { roomId: normalizedRoomId });
     }
   }, [clearHeartbeat, clearReconnectTimer, dispatch, scheduleReconnect, startHeartbeat]);
 
@@ -214,29 +222,30 @@ export const useSuburbSocket = () => {
 
   // Switch rooms only after the suburb has remained stable long enough to
   // avoid flapping near a suburb boundary or due to GPS drift.
-  const switchSuburb = useCallback(async (newSuburb: string) => {
-    const normalizedSuburb = normalizeSuburb(newSuburb);
-    if (!normalizedSuburb || normalizedSuburb === currentSuburbRef.current) {
+  const switchRoom = useCallback(async (locality: Locality) => {
+    const roomId = normalizeRoomId(locality.roomId);
+    if (!roomId || roomId === currentRoomIdRef.current) {
       return;
     }
 
-    currentSuburbRef.current = normalizedSuburb;
-    setActiveSuburb(normalizedSuburb);
-    dispatch(setChannelName(normalizedSuburb));
+    currentRoomIdRef.current = roomId;
+    setActiveRoomId(roomId);
+    dispatch(setRoom({ roomId, display: localityDisplay(locality) }));
 
     disconnectSocket();
     try {
-      await connectSocket(normalizedSuburb);
+      await connectSocket(roomId);
     } catch (error) {
-      logError('SuburbSocket', 'switchSuburb', error, { suburb: normalizedSuburb });
+      logError('SuburbSocket', 'switchRoom', error, { roomId });
       setSocketStatus('error');
     }
   }, [connectSocket, disconnectSocket, dispatch]);
 
   // Reverse-geocode the current coordinates using the backend location API.
-  const resolveSuburb = useCallback(async (latitude: number, longitude: number): Promise<string> => {
+  const resolveLocality = useCallback(async (latitude: number, longitude: number): Promise<Locality | null> => {
     const response = await uploadLocation({ latitude, longitude }).unwrap();
-    return normalizeSuburb(response?.channelId);
+    const roomId = normalizeRoomId(response?.roomId);
+    return roomId ? { ...response, roomId } : null;
   }, [uploadLocation]);
 
   // Ignore small GPS changes, then require a suburb candidate to persist for
@@ -259,11 +268,11 @@ export const useSuburbSocket = () => {
 
     lastCoordsRef.current = { latitude, longitude };
 
-    let observedSuburb = '';
+    let observedLocality: Locality | null = null;
     try {
-      observedSuburb = await resolveSuburb(latitude, longitude);
+      observedLocality = await resolveLocality(latitude, longitude);
     } catch (error: any) {
-      logError('SuburbSocket', 'handleLocation resolveSuburb', error, {
+      logError('SuburbSocket', 'handleLocation resolveLocality', error, {
         latitude,
         longitude,
       });
@@ -271,34 +280,36 @@ export const useSuburbSocket = () => {
       return;
     }
 
-    if (!observedSuburb) {
+    if (!observedLocality) {
       return;
     }
 
-    if (!currentSuburbRef.current) {
-      pendingSuburbRef.current = null;
-      await switchSuburb(observedSuburb);
+    const observedRoomId = observedLocality.roomId;
+
+    if (!currentRoomIdRef.current) {
+      pendingRoomRef.current = null;
+      await switchRoom(observedLocality);
       return;
     }
 
-    if (observedSuburb === currentSuburbRef.current) {
-      pendingSuburbRef.current = null;
+    if (observedRoomId === currentRoomIdRef.current) {
+      pendingRoomRef.current = null;
       return;
     }
 
     const now = Date.now();
-    const pending = pendingSuburbRef.current;
+    const pending = pendingRoomRef.current;
 
-    if (!pending || pending.value !== observedSuburb) {
-      pendingSuburbRef.current = { value: observedSuburb, firstSeenAtMs: now };
+    if (!pending || pending.value !== observedRoomId) {
+      pendingRoomRef.current = { value: observedRoomId, firstSeenAtMs: now };
       return;
     }
 
     if (now - pending.firstSeenAtMs >= SUBURB_STABILITY_MS) {
-      pendingSuburbRef.current = null;
-      await switchSuburb(observedSuburb);
+      pendingRoomRef.current = null;
+      await switchRoom(observedLocality);
     }
-  }, [resolveSuburb, switchSuburb]);
+  }, [resolveLocality, switchRoom]);
 
   useEffect(() => {
     let subscriber: Location.LocationSubscription | null = null;
@@ -346,13 +357,13 @@ export const useSuburbSocket = () => {
 
       if (nextState === 'active') {
         try {
-          const suburb = currentSuburbRef.current;
-          if (suburb && socketRef.current?.readyState !== WebSocket.OPEN) {
-            await connectSocket(suburb);
+          const roomId = currentRoomIdRef.current;
+          if (roomId && socketRef.current?.readyState !== WebSocket.OPEN) {
+            await connectSocket(roomId);
           }
         } catch (error) {
           logError('SuburbSocket', 'appState active reconnect', error, {
-            suburb: currentSuburbRef.current,
+            roomId: currentRoomIdRef.current,
           });
         }
       }
@@ -377,9 +388,9 @@ export const useSuburbSocket = () => {
     }
 
     if (socketRef.current?.readyState !== WebSocket.OPEN) {
-      const suburb = currentSuburbRef.current;
-      if (suburb) {
-        scheduleReconnect(suburb);
+      const roomId = currentRoomIdRef.current;
+      if (roomId) {
+        scheduleReconnect(roomId);
       }
       return false;
     }
@@ -392,7 +403,7 @@ export const useSuburbSocket = () => {
         })
       );
     } catch (error) {
-      logError('SuburbSocket', 'sendMessage', error, { suburb: currentSuburbRef.current });
+      logError('SuburbSocket', 'sendMessage', error, { roomId: currentRoomIdRef.current });
       setSocketStatus('error');
       return false;
     }
@@ -411,7 +422,7 @@ export const useSuburbSocket = () => {
 
   return {
     socketStatus,
-    activeSuburb,
+    activeRoomId,
     locationError,
     sendMessage,
   };

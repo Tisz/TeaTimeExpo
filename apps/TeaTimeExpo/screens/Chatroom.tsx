@@ -59,8 +59,8 @@ const StatusText = styled.Text`
 
 const Chatroom = () => {
     const messages = useSelector((state: RootState) => state.chat.chatHistory);
-    const channelId = useSelector((state: RootState) => state.chat.channelName);
-    const { socketStatus, activeSuburb, locationError, sendMessage } = useSuburbSocket();
+    const roomDisplay = useSelector((state: RootState) => state.chat.roomDisplay);
+    const { socketStatus, activeRoomId, locationError, sendMessage } = useSuburbSocket();
 
     const [input, setInput] = useState('');
     const flatListRef = useRef<FlatList<ChatMessage>>(null);
@@ -87,7 +87,7 @@ const Chatroom = () => {
                 >
                     <MainContainer style={{ paddingTop: 0, paddingLeft: 0, paddingRight: 0, paddingBottom: 0 }}>
                         <StatusText>
-                            {`Room: ${activeSuburb || channelId} | Socket: ${socketStatus}`}
+                            {`Room: ${roomDisplay || activeRoomId || 'Resolving location'} | Socket: ${socketStatus}`}
                         </StatusText>
                         {!!locationError && <StatusText>{locationError}</StatusText>}
                         <MainContainer style={{backgroundColor: 'transparent', paddingTop: 0, paddingLeft: 0, paddingRight: 0, paddingBottom: 0}}>

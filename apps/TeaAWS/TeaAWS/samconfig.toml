@@ -1,0 +1,14 @@
+version = 0.1
+
+[default.deploy.parameters]
+stack_name = "TeaTimeStack"
+resolve_s3 = true
+s3_prefix = "TeaTimeStack"
+profile = "Rhys-Admin"
+confirm_changeset = true
+capabilities = "CAPABILITY_IAM"
+parameter_overrides = "ChatTableName=\"TeaChat\" CognitoUserPoolId=\"ap-southeast-2_7xMoJ8i4B\" CognitoRegion=\"ap-southeast-2\" CognitoClientId=\"3k7m534msd10a7cjmlbsc3caf9\" ConnectionTtlSeconds=\"900\" PersistMessageHistory=\"true\""
+image_repositories = []
+
+[default.global.parameters]
+region = "ap-southeast-2"

@@ -4,6 +4,8 @@ using Amazon.DynamoDBv2;
 using Amazon.DynamoDBv2.Model;
 using Amazon.Lambda.APIGatewayEvents;
 using Amazon.Lambda.Core;
+using Amazon.LocationService;
+using Amazon.LocationService.Model;
 using Amazon.Runtime;
 using Microsoft.IdentityModel.Protocols;
 using Microsoft.IdentityModel.Protocols.OpenIdConnect;
@@ -13,6 +15,7 @@ using System.Net;
 using System.Security.Claims;
 using System.Text;
 using System.Text.Json;
+using System.Text.RegularExpressions;
 
 
 // Assembly attribute to enable the Lambda function's JSON input to be converted into a .NET class.
@@ -78,6 +81,79 @@ public sealed class CognitoJwtTokenValidator : IJwtTokenValidator
     }
 }
 
+public record LocalityInfo(string RoomId, string Suburb, string State, string Country);
+
+public interface ILocalityResolver
+{
+    Task<LocalityInfo?> ResolveAsync(double latitude, double longitude, CancellationToken cancellationToken = default);
+}
+
+public sealed class AmazonLocationLocalityResolver : ILocalityResolver
+{
+    private readonly IAmazonLocationService _locationClient;
+    private readonly string _placeIndexName;
+
+    public AmazonLocationLocalityResolver(IAmazonLocationService locationClient, string placeIndexName)
+    {
+        _locationClient = locationClient;
+        _placeIndexName = placeIndexName;
+    }
+
+    public async Task<LocalityInfo?> ResolveAsync(double latitude, double longitude, CancellationToken cancellationToken = default)
+    {
+        var response = await _locationClient.SearchPlaceIndexForPositionAsync(new SearchPlaceIndexForPositionRequest
+        {
+            IndexName = _placeIndexName,
+            Position = [longitude, latitude]
+        }, cancellationToken);
+
+        foreach (var result in response.Results)
+        {
+            var suburb = result.Place.Neighborhood ?? result.Place.Municipality;
+            var state = result.Place.Region;
+            var country = result.Place.Country;
+
+            if (!string.IsNullOrWhiteSpace(suburb) &&
+                !string.IsNullOrWhiteSpace(state) &&
+                !string.IsNullOrWhiteSpace(country))
+            {
+                return CreateLocality(suburb, state, country);
+            }
+        }
+
+        return null;
+    }
+
+    private static LocalityInfo? CreateLocality(string suburb, string state, string country)
+    {
+        var normalizedSuburb = NormalizeSegment(suburb);
+        var normalizedState = NormalizeSegment(state);
+        var normalizedCountry = NormalizeCountry(country);
+
+        if (string.IsNullOrWhiteSpace(normalizedSuburb) ||
+            string.IsNullOrWhiteSpace(normalizedState) ||
+            string.IsNullOrWhiteSpace(normalizedCountry))
+        {
+            return null;
+        }
+
+        return new LocalityInfo(
+            $"{normalizedCountry}#{normalizedState}#{normalizedSuburb}",
+            suburb.Trim(),
+            state.Trim(),
+            country.Trim());
+    }
+
+    private static string NormalizeCountry(string country) => country.Trim().ToUpperInvariant() switch
+    {
+        "AUSTRALIA" or "AUS" => "AU",
+        _ => NormalizeSegment(country)
+    };
+
+    private static string NormalizeSegment(string value) =>
+        Regex.Replace(value.Trim().ToUpperInvariant(), "[^A-Z0-9]+", "_").Trim('_');
+}
+
 public class Functions
 {
     private const string TableNameEnv = "CHAT_TABLE";
@@ -86,6 +162,7 @@ public class Functions
     private const string CognitoClientIdEnv = "COGNITO_CLIENT_ID";
     private const string ConnectionTtlSecondsEnv = "CONNECTION_TTL_SECONDS";
     private const string PersistHistoryEnv = "PERSIST_MESSAGE_HISTORY";
+    private const string PlaceIndexNameEnv = "PLACE_INDEX_NAME";
 
     public const string PK = "PK";
     public const string SK = "SK";
@@ -93,7 +170,10 @@ public class Functions
     public const string GSI1SK = "GSI1SK";
     public const string ConnectionIdField = "connectionId";
     public const string UserIdField = "userId";
+    public const string RoomIdField = "roomId";
     public const string SuburbField = "suburb";
+    public const string StateField = "state";
+    public const string CountryField = "country";
     public const string ExpiresAtField = "expiresAt";
 
     private readonly string _chatTable;
@@ -102,6 +182,7 @@ public class Functions
     private readonly IJwtTokenValidator _tokenValidator;
     private readonly int _connectionTtlSeconds;
     private readonly bool _persistMessageHistory;
+    private readonly ILocalityResolver? _localityResolver;
 
 
     /// <summary>
@@ -122,6 +203,12 @@ public class Functions
 
         _connectionTtlSeconds = ParseIntFromEnv(ConnectionTtlSecondsEnv, 900);
         _persistMessageHistory = ParseBoolFromEnv(PersistHistoryEnv, true);
+
+        var placeIndexName = Environment.GetEnvironmentVariable(PlaceIndexNameEnv);
+        if (!string.IsNullOrWhiteSpace(placeIndexName))
+        {
+            _localityResolver = new AmazonLocationLocalityResolver(new AmazonLocationServiceClient(), placeIndexName);
+        }
 
         _apiGatewayManagementApiClientFactory = endpoint => new AmazonApiGatewayManagementApiClient(
             new AmazonApiGatewayManagementApiConfig
@@ -145,7 +232,8 @@ public class Functions
         string chatTable,
         IJwtTokenValidator tokenValidator,
         int connectionTtlSeconds = 900,
-        bool persistMessageHistory = true)
+        bool persistMessageHistory = true,
+        ILocalityResolver? localityResolver = null)
     {
         _ddbClient = ddbClient;
         _apiGatewayManagementApiClientFactory = apiGatewayManagementApiClientFactory;
@@ -153,6 +241,7 @@ public class Functions
         _tokenValidator = tokenValidator;
         _connectionTtlSeconds = connectionTtlSeconds;
         _persistMessageHistory = persistMessageHistory;
+        _localityResolver = localityResolver;
     }
 
     public async Task<APIGatewayProxyResponse> OnConnectHandler(APIGatewayProxyRequest request, ILambdaContext context)
@@ -160,10 +249,10 @@ public class Functions
         try
         {
             var connectionId = request.RequestContext.ConnectionId;
-            var suburb = GetDictionaryValue(request.QueryStringParameters, "suburb")?.Trim();
+            var roomId = NormalizeRoomId(GetDictionaryValue(request.QueryStringParameters, "roomId"));
             var token = TryReadToken(request);
 
-            if (string.IsNullOrWhiteSpace(connectionId) || string.IsNullOrWhiteSpace(suburb) || string.IsNullOrWhiteSpace(token))
+            if (string.IsNullOrWhiteSpace(connectionId) || string.IsNullOrWhiteSpace(roomId) || string.IsNullOrWhiteSpace(token))
             {
                 context.Logger.LogInformation($"route=$connect connectionId={connectionId} reason=missing_required_values");
                 return new APIGatewayProxyResponse { StatusCode = 401, Body = "Unauthorized" };
@@ -188,16 +277,16 @@ public class Functions
                     { SK, new AttributeValue { S = "META" } },
                     { ConnectionIdField, new AttributeValue { S = connectionId } },
                     { UserIdField, new AttributeValue { S = validation.UserId } },
-                    { SuburbField, new AttributeValue { S = suburb.ToLowerInvariant() } },
+                    { RoomIdField, new AttributeValue { S = roomId } },
                     { "connectedAt", new AttributeValue { S = now.ToString("O") } },
                     { ExpiresAtField, new AttributeValue { N = (now.ToUnixTimeSeconds() + _connectionTtlSeconds).ToString() } },
-                    { GSI1PK, new AttributeValue { S = BuildRoomPk(suburb) } },
+                    { GSI1PK, new AttributeValue { S = BuildRoomPk(roomId) } },
                     { GSI1SK, new AttributeValue { S = BuildConnectionPk(connectionId) } }
                 }
             };
 
             await _ddbClient.PutItemAsync(ddbRequest);
-            context.Logger.LogInformation($"route=$connect connectionId={connectionId} userId={validation.UserId} suburb={suburb}");
+            context.Logger.LogInformation($"route=$connect connectionId={connectionId} userId={validation.UserId} roomId={roomId}");
 
             return new APIGatewayProxyResponse
             {
@@ -245,17 +334,17 @@ public class Functions
             }
 
             var senderUserId = GetAttributeString(senderRecord.Item, UserIdField) ?? "unknown";
-            var suburb = GetAttributeString(senderRecord.Item, SuburbField);
-            if (string.IsNullOrWhiteSpace(suburb))
+            var roomId = GetAttributeString(senderRecord.Item, RoomIdField);
+            if (string.IsNullOrWhiteSpace(roomId))
             {
-                return new APIGatewayProxyResponse { StatusCode = (int)HttpStatusCode.BadRequest, Body = "Connection has no suburb" };
+                return new APIGatewayProxyResponse { StatusCode = (int)HttpStatusCode.BadRequest, Body = "Connection has no room" };
             }
 
             // Construct the API Gateway endpoint that incoming message will be broadcasted to.
             var domainName = request.RequestContext.DomainName;
             var stage = request.RequestContext.Stage;
             var endpoint = $"https://{domainName}/{stage}";
-            context.Logger.LogInformation($"route=sendMessage connectionId={senderConnectionId} userId={senderUserId} suburb={suburb} endpoint={endpoint}");
+            context.Logger.LogInformation($"route=sendMessage connectionId={senderConnectionId} userId={senderUserId} roomId={roomId} endpoint={endpoint}");
 
             // The body will look something like this: {"message":"sendmessage", "data":"What are you doing?"}
             JsonDocument message = JsonDocument.Parse(request.Body);
@@ -277,7 +366,7 @@ public class Functions
             {
                 var now = DateTimeOffset.UtcNow;
                 var messageId = Guid.NewGuid().ToString("N");
-                var roomPk = BuildRoomPk(suburb);
+                var roomPk = BuildRoomPk(roomId);
                 await _ddbClient.PutItemAsync(new PutItemRequest
                 {
                     TableName = _chatTable,
@@ -288,7 +377,7 @@ public class Functions
                         { "messageId", new AttributeValue { S = messageId } },
                         { "message", new AttributeValue { S = data } },
                         { UserIdField, new AttributeValue { S = senderUserId } },
-                        { SuburbField, new AttributeValue { S = suburb } },
+                        { RoomIdField, new AttributeValue { S = roomId } },
                         { "sentAt", new AttributeValue { S = now.ToString("O") } }
                     }
                 });
@@ -301,7 +390,7 @@ public class Functions
                 KeyConditionExpression = "GSI1PK = :room",
                 ExpressionAttributeValues = new Dictionary<string, AttributeValue>
                 {
-                    { ":room", new AttributeValue { S = BuildRoomPk(suburb) } }
+                    { ":room", new AttributeValue { S = BuildRoomPk(roomId) } }
                 },
                 ProjectionExpression = "connectionId"
             };
@@ -315,7 +404,7 @@ public class Functions
             {
                 message = data,
                 userId = senderUserId,
-                suburb,
+                roomId,
                 messageTime = DateTimeOffset.UtcNow.ToString("O")
             });
 
@@ -337,7 +426,7 @@ public class Functions
 
                 try
                 {
-                    context.Logger.LogInformation($"route=sendMessage action=post connectionId={targetConnectionId} suburb={suburb}");
+                    context.Logger.LogInformation($"route=sendMessage action=post connectionId={targetConnectionId} roomId={roomId}");
                     await apiClient.PostToConnectionAsync(postConnectionRequest);
                     count++;
                 }
@@ -416,11 +505,99 @@ public class Functions
         return Ok("Heartbeat accepted");
     }
 
+    public async Task<APIGatewayProxyResponse> SetLocationHandler(APIGatewayProxyRequest request, ILambdaContext context)
+    {
+        var token = TryReadToken(request);
+        if (string.IsNullOrWhiteSpace(token))
+        {
+            return Unauthorized();
+        }
+
+        TokenValidationResult validation = await _tokenValidator.ValidateAsync(token);
+        if (!validation.IsValid)
+        {
+            context.Logger.LogInformation($"route=location reason=invalid_token error={validation.Error}");
+            return Unauthorized();
+        }
+
+        LocationRequest? location;
+        try
+        {
+            location = JsonSerializer.Deserialize<LocationRequest>(request.Body ?? string.Empty, new JsonSerializerOptions
+            {
+                PropertyNameCaseInsensitive = true
+            });
+        }
+        catch (JsonException)
+        {
+            return BadRequest("Invalid location payload");
+        }
+
+        if (location is null || !IsValidCoordinate(location.Latitude, location.Longitude))
+        {
+            return BadRequest("Latitude or longitude is invalid");
+        }
+
+        if (_localityResolver is null)
+        {
+            context.Logger.LogInformation("route=location reason=geocoding_not_configured");
+            return ServerError("Location service is not configured");
+        }
+
+        try
+        {
+            var locality = await _localityResolver.ResolveAsync(location.Latitude, location.Longitude);
+            if (locality is null)
+            {
+                return NotFound("No complete locality found for this location");
+            }
+
+            context.Logger.LogInformation($"route=location userId={validation.UserId} roomId={locality.RoomId}");
+            return JsonResponse(HttpStatusCode.OK, new
+            {
+                roomId = locality.RoomId,
+                suburb = locality.Suburb,
+                state = locality.State,
+                country = locality.Country
+            });
+        }
+        catch (AmazonLocationServiceException exception)
+        {
+            context.Logger.LogInformation($"route=location reason=geocoding_failed error={exception.Message}");
+            return ServerError("Unable to resolve suburb");
+        }
+    }
+
     private static APIGatewayProxyResponse Ok(string message) =>
         new APIGatewayProxyResponse { StatusCode = 200, Body = message };
 
     private static APIGatewayProxyResponse BadRequest(string message) =>
         new APIGatewayProxyResponse { StatusCode = 400, Body = message };
+
+    private static APIGatewayProxyResponse Unauthorized() =>
+        new APIGatewayProxyResponse { StatusCode = 401, Body = "Unauthorized" };
+
+    private static APIGatewayProxyResponse NotFound(string message) =>
+        new APIGatewayProxyResponse { StatusCode = 404, Body = message };
+
+    private static APIGatewayProxyResponse ServerError(string message) =>
+        new APIGatewayProxyResponse { StatusCode = 500, Body = message };
+
+    private static APIGatewayProxyResponse JsonResponse(HttpStatusCode statusCode, object body) =>
+        new APIGatewayProxyResponse
+        {
+            StatusCode = (int)statusCode,
+            Body = JsonSerializer.Serialize(body),
+            Headers = new Dictionary<string, string> { ["Content-Type"] = "application/json" }
+        };
+
+    private static bool IsValidCoordinate(double latitude, double longitude) =>
+        !double.IsNaN(latitude) &&
+        !double.IsInfinity(latitude) &&
+        !double.IsNaN(longitude) &&
+        !double.IsInfinity(longitude) &&
+        latitude is >= -90 and <= 90 &&
+        longitude is >= -180 and <= 180;
 
     private static int ParseIntFromEnv(string key, int defaultValue)
     {
@@ -435,7 +612,16 @@ public class Functions
     }
 
     private static string BuildConnectionPk(string connectionId) => $"CONN#{connectionId}";
-    private static string BuildRoomPk(string suburb) => $"ROOM#{suburb.Trim().ToLowerInvariant()}";
+    private static string BuildRoomPk(string roomId) => $"ROOM#{roomId}";
+
+    private static string? NormalizeRoomId(string? roomId)
+    {
+        var normalized = roomId?.Trim().ToUpperInvariant();
+        return !string.IsNullOrWhiteSpace(normalized) &&
+            Regex.IsMatch(normalized, "^[A-Z0-9_]+#[A-Z0-9_]+#[A-Z0-9_]+$")
+            ? normalized
+            : null;
+    }
 
     private static string? TryReadToken(APIGatewayProxyRequest request)
     {
@@ -516,4 +702,6 @@ public class Functions
             }
         });
     }
+
+    private sealed record LocationRequest(double Latitude, double Longitude);
 }
