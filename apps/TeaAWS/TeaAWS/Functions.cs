@@ -163,6 +163,8 @@ public class Functions
     private const string ConnectionTtlSecondsEnv = "CONNECTION_TTL_SECONDS";
     private const string PersistHistoryEnv = "PERSIST_MESSAGE_HISTORY";
     private const string PlaceIndexNameEnv = "PLACE_INDEX_NAME";
+    private const int MessageHistoryLimit = 10;
+    private static readonly TimeSpan MessageRetention = TimeSpan.FromHours(24);
 
     public const string PK = "PK";
     public const string SK = "SK";
@@ -361,11 +363,11 @@ public class Functions
             }
 
             var data = dataProperty.GetString() ?? "";
+            var now = DateTimeOffset.UtcNow;
+            var messageId = Guid.NewGuid().ToString("N");
 
             if (_persistMessageHistory)
             {
-                var now = DateTimeOffset.UtcNow;
-                var messageId = Guid.NewGuid().ToString("N");
                 var roomPk = BuildRoomPk(roomId);
                 await _ddbClient.PutItemAsync(new PutItemRequest
                 {
@@ -378,7 +380,8 @@ public class Functions
                         { "message", new AttributeValue { S = data } },
                         { UserIdField, new AttributeValue { S = senderUserId } },
                         { RoomIdField, new AttributeValue { S = roomId } },
-                        { "sentAt", new AttributeValue { S = now.ToString("O") } }
+                        { "sentAt", new AttributeValue { S = now.ToString("O") } },
+                        { ExpiresAtField, new AttributeValue { N = now.Add(MessageRetention).ToUnixTimeSeconds().ToString() } }
                     }
                 });
             }
@@ -402,10 +405,11 @@ public class Functions
 
             var outbound = JsonSerializer.Serialize(new
             {
+                messageId,
                 message = data,
                 userId = senderUserId,
                 roomId,
-                messageTime = DateTimeOffset.UtcNow.ToString("O")
+                messageTime = now.ToString("O")
             });
 
             // Loop through all of the connections and broadcast the message out to the connections.
@@ -505,6 +509,66 @@ public class Functions
         return Ok("Heartbeat accepted");
     }
 
+    public async Task<APIGatewayProxyResponse> GetRecentMessagesHandler(APIGatewayProxyRequest request, ILambdaContext context)
+    {
+        var token = TryReadToken(request);
+        if (string.IsNullOrWhiteSpace(token))
+        {
+            return Unauthorized();
+        }
+
+        TokenValidationResult validation = await _tokenValidator.ValidateAsync(token);
+        if (!validation.IsValid || string.IsNullOrWhiteSpace(validation.UserId))
+        {
+            context.Logger.LogInformation($"route=recentMessages reason=invalid_token error={validation.Error}");
+            return Unauthorized();
+        }
+
+        var roomId = NormalizeRoomId(GetDictionaryValue(request.PathParameters, "roomId"));
+        if (string.IsNullOrWhiteSpace(roomId))
+        {
+            return BadRequest("Room id is invalid");
+        }
+
+        var limit = ParseMessageLimit(GetDictionaryValue(request.QueryStringParameters, "limit"));
+        if (limit is null)
+        {
+            return BadRequest($"Limit must be between 1 and {MessageHistoryLimit}");
+        }
+
+        var cutoff = DateTimeOffset.UtcNow.Subtract(MessageRetention).ToUnixTimeMilliseconds();
+        var queryResponse = await _ddbClient.QueryAsync(new QueryRequest
+        {
+            TableName = _chatTable,
+            KeyConditionExpression = "PK = :pk AND SK >= :cutoff",
+            ExpressionAttributeValues = new Dictionary<string, AttributeValue>
+            {
+                { ":pk", new AttributeValue { S = BuildRoomPk(roomId) } },
+                { ":cutoff", new AttributeValue { S = $"MSG#{cutoff}" } }
+            },
+            ScanIndexForward = false,
+            Limit = limit.Value
+        });
+
+        var messages = queryResponse.Items
+            .Where(item => GetAttributeString(item, SK)?.StartsWith("MSG#", StringComparison.Ordinal) == true)
+            .Select(item => new
+            {
+                messageId = GetAttributeString(item, "messageId"),
+                message = GetAttributeString(item, "message"),
+                userId = GetAttributeString(item, UserIdField),
+                messageTime = GetAttributeString(item, "sentAt")
+            })
+            .Where(message => !string.IsNullOrWhiteSpace(message.messageId) &&
+                !string.IsNullOrWhiteSpace(message.message) &&
+                !string.IsNullOrWhiteSpace(message.messageTime))
+            .Reverse()
+            .ToArray();
+
+        context.Logger.LogInformation($"route=recentMessages userId={validation.UserId} roomId={roomId} count={messages.Length}");
+        return JsonResponse(HttpStatusCode.OK, new { roomId, messages });
+    }
+
     public async Task<APIGatewayProxyResponse> SetLocationHandler(APIGatewayProxyRequest request, ILambdaContext context)
     {
         var token = TryReadToken(request);
@@ -552,6 +616,7 @@ public class Functions
                 return NotFound("No complete locality found for this location");
             }
 
+            await CreateRoomMetadataIfMissingAsync(locality);
             context.Logger.LogInformation($"route=location userId={validation.UserId} roomId={locality.RoomId}");
             return JsonResponse(HttpStatusCode.OK, new
             {
@@ -609,6 +674,46 @@ public class Functions
     {
         var raw = Environment.GetEnvironmentVariable(key);
         return bool.TryParse(raw, out var parsed) ? parsed : defaultValue;
+    }
+
+    private static int? ParseMessageLimit(string? rawLimit)
+    {
+        if (string.IsNullOrWhiteSpace(rawLimit))
+        {
+            return MessageHistoryLimit;
+        }
+
+        return int.TryParse(rawLimit, out var parsed) && parsed is >= 1 and <= MessageHistoryLimit
+            ? parsed
+            : null;
+    }
+
+    private async Task CreateRoomMetadataIfMissingAsync(LocalityInfo locality)
+    {
+        var now = DateTimeOffset.UtcNow;
+
+        try
+        {
+            await _ddbClient.PutItemAsync(new PutItemRequest
+            {
+                TableName = _chatTable,
+                Item = new Dictionary<string, AttributeValue>
+                {
+                    { PK, new AttributeValue { S = BuildRoomPk(locality.RoomId) } },
+                    { SK, new AttributeValue { S = "META" } },
+                    { RoomIdField, new AttributeValue { S = locality.RoomId } },
+                    { SuburbField, new AttributeValue { S = locality.Suburb } },
+                    { StateField, new AttributeValue { S = locality.State } },
+                    { CountryField, new AttributeValue { S = locality.Country } },
+                    { "createdAt", new AttributeValue { S = now.ToString("O") } }
+                },
+                ConditionExpression = "attribute_not_exists(PK)"
+            });
+        }
+        catch (ConditionalCheckFailedException)
+        {
+            // A prior request already created this permanent room record.
+        }
     }
 
     private static string BuildConnectionPk(string connectionId) => $"CONN#{connectionId}";

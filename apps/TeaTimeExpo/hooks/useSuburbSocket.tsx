@@ -2,7 +2,8 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { AppState, AppStateStatus } from 'react-native';
 import * as Location from 'expo-location';
 import { useDispatch } from 'react-redux';
-import { addMessage, setRoom } from '../redux/slices/chatSlice';
+import { addMessage, setMessageHistory, setRoom } from '../redux/slices/chatSlice';
+import { useLazyGetRecentMessagesQuery } from '../redux/api/chatAPI';
 import { useUploadLocationMutation } from '../redux/api/locationAPI';
 import { UserAPI } from '../redux/api/userAPI';
 import { WebSocketBaseURL } from '../data/constants/DataConstants';
@@ -66,6 +67,7 @@ const addJitter = (delayMs: number): number => {
 export const useSuburbSocket = () => {
   const dispatch = useDispatch();
   const [uploadLocation] = useUploadLocationMutation();
+  const [getRecentMessages] = useLazyGetRecentMessagesQuery();
 
   const [socketStatus, setSocketStatus] = useState<SocketStatus>('idle');
   const [activeRoomId, setActiveRoomId] = useState<string>('');
@@ -184,6 +186,7 @@ export const useSuburbSocket = () => {
 
           dispatch(
             addMessage({
+              messageId: parsed.messageId ?? `${parsed.userId ?? 'unknown'}-${parsed.messageTime ?? Date.now()}-${messageText}`,
               username: parsed.userId ?? 'Someone',
               message: messageText,
               messageTime: parsed.messageTime ?? new Date().toISOString(),
@@ -234,12 +237,26 @@ export const useSuburbSocket = () => {
 
     disconnectSocket();
     try {
-      await connectSocket(roomId);
+      const history = await getRecentMessages(roomId).unwrap();
+      if (currentRoomIdRef.current === roomId) {
+        dispatch(
+          setMessageHistory(
+            history.messages.map((message) => ({
+              messageId: message.messageId,
+              username: message.userId || 'Someone',
+              message: message.message,
+              messageTime: message.messageTime,
+              sender: 'other',
+            }))
+          )
+        );
+      }
     } catch (error) {
-      logError('SuburbSocket', 'switchRoom', error, { roomId });
-      setSocketStatus('error');
+      logError('SuburbSocket', 'switchRoom history', error, { roomId });
     }
-  }, [connectSocket, disconnectSocket, dispatch]);
+
+    await connectSocket(roomId);
+  }, [connectSocket, disconnectSocket, dispatch, getRecentMessages]);
 
   // Reverse-geocode the current coordinates using the backend location API.
   const resolveLocality = useCallback(async (latitude: number, longitude: number): Promise<Locality | null> => {
@@ -408,17 +425,8 @@ export const useSuburbSocket = () => {
       return false;
     }
 
-    dispatch(
-      addMessage({
-        username: 'Me',
-        message: payload,
-        messageTime: new Date().toISOString(),
-        sender: 'user',
-      })
-    );
-
     return true;
-  }, [dispatch, scheduleReconnect]);
+  }, [scheduleReconnect]);
 
   return {
     socketStatus,

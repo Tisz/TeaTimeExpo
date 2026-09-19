@@ -24,7 +24,13 @@ const chatSlice = createSlice({
             state.chatHistory = []; // clear history on channel switch
         },
         addMessage: (state, action: PayloadAction<ChatMessage>) => {
+            if (state.chatHistory.some((message) => message.messageId === action.payload.messageId)) {
+                return;
+            }
             state.chatHistory.push(action.payload);
+        },
+        setMessageHistory: (state, action: PayloadAction<ChatMessage[]>) => {
+            state.chatHistory = action.payload;
         },
         clearChatHistory: (state) => {
             state.chatHistory = [];
@@ -32,5 +38,5 @@ const chatSlice = createSlice({
     },
 });
 
-export const { setRoom, addMessage, clearChatHistory } = chatSlice.actions;
+export const { setRoom, addMessage, setMessageHistory, clearChatHistory } = chatSlice.actions;
 export default chatSlice.reducer;

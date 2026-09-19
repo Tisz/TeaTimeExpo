@@ -200,6 +200,11 @@ Resources:
         - Statement:
             Effect: Allow
             Action:
+              - dynamodb:PutItem
+            Resource: !GetAtt ChatTable.Arn
+        - Statement:
+            Effect: Allow
+            Action:
               - geo:SearchPlaceIndexForPosition
             Resource: !GetAtt PlaceIndex.Arn
       Environment:
@@ -217,6 +222,32 @@ Resources:
           Properties:
             Path: /location
             Method: post
+
+  GetRecentMessagesFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      Handler: TeaAWS::TeaAWS.Functions::GetRecentMessagesHandler
+      Runtime: dotnet10
+      MemorySize: 512
+      Timeout: 30
+      Policies:
+        - Statement:
+            Effect: Allow
+            Action:
+              - dynamodb:Query
+            Resource: !GetAtt ChatTable.Arn
+      Environment:
+        Variables:
+          CHAT_TABLE: !Ref ChatTableName
+          COGNITO_USER_POOL_ID: !Ref CognitoUserPoolId
+          COGNITO_REGION: !Ref CognitoRegion
+          COGNITO_CLIENT_ID: !Ref CognitoClientId
+      Events:
+        RecentMessages:
+          Type: Api
+          Properties:
+            Path: /rooms/{roomId}/messages
+            Method: get
 
   SimpleChatWebSocketApi:
     Type: AWS::ApiGatewayV2::Api
