@@ -6,7 +6,7 @@ import { addMessage, setMessageHistory, setRoom } from '../redux/slices/chatSlic
 import { useLazyGetRecentMessagesQuery } from '../redux/api/chatAPI';
 import { useUploadLocationMutation } from '../redux/api/locationAPI';
 import { UserAPI } from '../redux/api/userAPI';
-import { WebSocketBaseURL } from '../data/constants/DataConstants';
+import { webSocketBaseUrl } from '../config/awsEndpoints';
 import { logError } from '../utils/errorLogger';
 
 const MIN_DISTANCE_METERS = 200;
@@ -53,6 +53,17 @@ const distanceMeters = (
 
 const normalizeRoomId = (value?: string): string => (value ?? '').trim().toUpperCase();
 const localityDisplay = (locality: Locality): string => `${locality.suburb}, ${locality.state}`;
+
+const locationRequestErrorMessage = (error: unknown): string => {
+  if (error && typeof error === 'object' && 'status' in error) {
+    const apiError = error as { status?: unknown; data?: unknown };
+    if (apiError.status === 401) {
+      return 'Chat authorization failed. Sign out and sign back in, then try again.';
+    }
+  }
+
+  return error instanceof Error ? error.message : 'Failed to resolve suburb';
+};
 
 const addJitter = (delayMs: number): number => {
   const jitter = Math.floor(Math.random() * 500);
@@ -166,7 +177,7 @@ export const useSuburbSocket = () => {
       clearHeartbeat();
 
       const query = `roomId=${encodeURIComponent(normalizedRoomId)}&token=${encodeURIComponent(token)}`;
-      const ws = new WebSocket(`${WebSocketBaseURL}?${query}`);
+      const ws = new WebSocket(`${webSocketBaseUrl}?${query}`);
       socketRef.current = ws;
       setSocketStatus('connecting');
 
@@ -293,7 +304,7 @@ export const useSuburbSocket = () => {
         latitude,
         longitude,
       });
-      setLocationError(error?.message ?? 'Failed to resolve suburb');
+      setLocationError(locationRequestErrorMessage(error));
       return;
     }
 

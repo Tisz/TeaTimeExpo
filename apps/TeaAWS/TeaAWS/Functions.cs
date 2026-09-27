@@ -65,7 +65,8 @@ public sealed class CognitoJwtTokenValidator : IJwtTokenValidator
 
             var handler = new JwtSecurityTokenHandler();
             ClaimsPrincipal principal = handler.ValidateToken(token, validationParameters, out _);
-            string? userId = principal.FindFirst("sub")?.Value;
+            string? userId = principal.FindFirst("sub")?.Value ??
+                principal.FindFirst(ClaimTypes.NameIdentifier)?.Value;
 
             if (string.IsNullOrWhiteSpace(userId))
             {
@@ -574,6 +575,7 @@ public class Functions
         var token = TryReadToken(request);
         if (string.IsNullOrWhiteSpace(token))
         {
+            context.Logger.LogInformation("route=location reason=missing_token");
             return Unauthorized();
         }
 
@@ -721,7 +723,9 @@ public class Functions
 
     private static string? NormalizeRoomId(string? roomId)
     {
-        var normalized = roomId?.Trim().ToUpperInvariant();
+        var normalized = roomId is null
+            ? null
+            : Uri.UnescapeDataString(roomId).Trim().ToUpperInvariant();
         return !string.IsNullOrWhiteSpace(normalized) &&
             Regex.IsMatch(normalized, "^[A-Z0-9_]+#[A-Z0-9_]+#[A-Z0-9_]+$")
             ? normalized

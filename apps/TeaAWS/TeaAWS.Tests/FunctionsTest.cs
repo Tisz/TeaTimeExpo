@@ -282,7 +282,7 @@ public class FunctionsTest
         var response = await functions.GetRecentMessagesHandler(new APIGatewayProxyRequest
         {
             Headers = new Dictionary<string, string> { ["Authorization"] = "Bearer token-123" },
-            PathParameters = new Dictionary<string, string> { ["roomId"] = "AU#NSW#SYDNEY" }
+            PathParameters = new Dictionary<string, string> { ["roomId"] = "AU%23NSW%23SYDNEY" }
         }, new TestLambdaContext());
 
         Assert.Equal(200, response.StatusCode);

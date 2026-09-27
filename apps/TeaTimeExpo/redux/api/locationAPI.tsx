@@ -1,5 +1,5 @@
 import { createApi } from "@reduxjs/toolkit/query/react";
-import { baseQueryWithAuth } from "./baseQuery";
+import { apiResponseHandler, baseQueryWithAuth } from "./baseQuery";
 
 type LocationPayload = { latitude: number; longitude: number };
 export type LocationResponse = {
@@ -22,6 +22,7 @@ export const locationApi = createApi({
         url: "/location",
         method: "POST",
         body: coords,
+        responseHandler: apiResponseHandler,
       }),
     }),
   }),

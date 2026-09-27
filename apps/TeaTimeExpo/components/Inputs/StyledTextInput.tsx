@@ -40,7 +40,7 @@ const RightIcon = styled.TouchableOpacity`
 
 
 interface StyledTextInputProps {
-    icon?: string | null;
+    icon?: React.ComponentProps<typeof MaterialCommunityIcons>['name'] | null;
     label?: string;
     isPassword?: boolean;
     overrideHeight?: number;

@@ -1,6 +1,6 @@
 import React, {useState, useContext} from 'react';
 import { Formik } from 'formik';
-import { ActivityIndicator } from 'react-native'
+import { ActivityIndicator, Image } from 'react-native'
 
 import { useTheme } from 'styled-components/native';
 import { ThemeType } from '../components/Colors/Colors';
@@ -59,6 +59,17 @@ const Login = ({navigation, route}) => {
 
     return <MainContainer>
         <KeyboardAvoidingContainer>
+            <Image
+                source={require('../assets/Tea_Logo.png')}
+                style={{
+                    width: 220,
+                    height: 80,
+                    alignSelf: 'center',
+                    marginBottom: 30,
+                }}
+                resizeMode="contain"
+            />
+
             <RegularText style={{marginBottom: 25}}>
                 Enter your account details
             </RegularText>

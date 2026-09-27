@@ -1,6 +1,7 @@
 import { createApi } from '@reduxjs/toolkit/query/react';
 import { ChatMessage } from '../../data/types/ChatMessage';
-import { baseQueryWithAuth } from './baseQuery';
+import { chatApiBaseUrl } from '../../config/awsEndpoints';
+import { apiResponseHandler, createBaseQueryWithAuth } from './baseQuery';
 
 export type RecentMessage = {
   messageId: string;
@@ -26,10 +27,13 @@ export const getMockMessages = (channelId: string): ChatMessage[] => {
 
 export const chatApi = createApi({
   reducerPath: 'chatApi',
-  baseQuery: baseQueryWithAuth,
+  baseQuery: createBaseQueryWithAuth(chatApiBaseUrl),
   endpoints: (builder) => ({
     getRecentMessages: builder.query<RecentMessagesResponse, string>({
-      query: (roomId) => `/rooms/${encodeURIComponent(roomId)}/messages?limit=10`,
+      query: (roomId) => ({
+        url: `/rooms/${encodeURIComponent(roomId)}/messages?limit=10`,
+        responseHandler: apiResponseHandler,
+      }),
     }),
   }),
 });

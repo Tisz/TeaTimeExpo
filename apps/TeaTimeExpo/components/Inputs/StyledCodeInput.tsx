@@ -1,4 +1,5 @@
 import React, {useRef,useState,useEffect} from 'react';
+import { TextInput } from 'react-native';
 import styled from 'styled-components/native'
 
 const CodeInputSection = styled.View`
@@ -7,13 +8,6 @@ const CodeInputSection = styled.View`
     justify-content: center;
     margin-vertical: 25px;
     `;
-
-const HiddenTextInput = styled.TextInput`
-    position: absolute;
-    width: 1px;
-    height: 1px;
-    opacity: 0;
-`;
 
 const CodeInputsContainer = styled.Pressable`
     width: 70%;
@@ -40,13 +34,20 @@ const CodeInputFocused = styled(CodeInput)`
     border-color:  ${(props) => props.theme.accent};
 `;
 
-const StyledCodeInput = ({code, setCode, maxLength, setPinReady }) => {
+interface StyledCodeInputProps {
+    code: string;
+    setCode: (value: string) => void;
+    maxLength: number;
+    setPinReady: (value: boolean) => void;
+}
+
+const StyledCodeInput = ({code, setCode, maxLength, setPinReady}: StyledCodeInputProps) => {
 
     const [inputContainerIsFocused, setInputContainerIsFocused] = useState(false);
 
     const codeDigitsArray = new Array(maxLength).fill(0);
 
-    const textInputRef = useRef(null);
+    const textInputRef = useRef<TextInput | null>(null);
 
     const handleOnSubmitEditing = () => {
         setInputContainerIsFocused(false);
@@ -63,7 +64,7 @@ const StyledCodeInput = ({code, setCode, maxLength, setPinReady }) => {
         return () => setPinReady(false);
     }, [code])
 
-    const toCodeDigitInput = (value, index) => {
+    const toCodeDigitInput = (_value: number, index: number) => {
         const emptyInputChar = ' ';
         const digit = code[index] || emptyInputChar;
 
@@ -85,7 +86,13 @@ const StyledCodeInput = ({code, setCode, maxLength, setPinReady }) => {
 
     return <CodeInputSection>
         <CodeInputsContainer onPress={handleOnPress}>{ codeDigitsArray.map(toCodeDigitInput) }</CodeInputsContainer>
-        <HiddenTextInput
+        <TextInput
+            style={{
+                position: 'absolute',
+                width: 1,
+                height: 1,
+                opacity: 0,
+            }}
             keyboardType="number-pad"
             returnKeyType="done"
             textContentType="oneTimeCode"

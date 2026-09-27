@@ -1,7 +1,8 @@
-export const ApiURL: string = "https://myapi.com";
-export const APIVersion: string = "/v1";
+import { chatApiBaseUrl, locationApiBaseUrl, webSocketBaseUrl } from '../../config/awsEndpoints';
 
-export const ApiFullURL: string = `${ApiURL}${APIVersion}`;
+export const ApiURL: string = locationApiBaseUrl;
+export const APIVersion: string = '';
+export const ApiFullURL: string = locationApiBaseUrl;
+export const ChatApiFullURL: string = chatApiBaseUrl;
 
-//Web socket URL from AWS
-export const WebSocketBaseURL: string = "wss://kv64fohoj8.execute-api.ap-southeast-2.amazonaws.com/Prod/";
+export const WebSocketBaseURL: string = webSocketBaseUrl;

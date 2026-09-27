@@ -170,8 +170,26 @@ export class UserAPI {
     }
   }
 
-  static async getStoredToken(): Promise<string | null> {
-    return AsyncStorage.getItem(STORAGE_KEY);
+  static async getStoredToken(forceRefresh = false): Promise<string | null> {
+    await this.ensureConfigured();
+
+    try {
+      const session = await fetchAuthSession({ forceRefresh });
+      const idToken = session.tokens?.idToken?.toString();
+      const accessToken = session.tokens?.accessToken?.toString();
+      const refreshToken = (session.tokens as any)?.refreshToken?.toString();
+
+      if (!idToken) {
+        await this.clearStoredToken();
+        return null;
+      }
+
+      await this.saveTokens(idToken, accessToken, refreshToken);
+      return idToken;
+    } catch {
+      await this.clearStoredToken();
+      return null;
+    }
   }
 
   private static async clearStoredToken() {

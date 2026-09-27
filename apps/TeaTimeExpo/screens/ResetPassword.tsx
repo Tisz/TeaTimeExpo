@@ -21,7 +21,7 @@ import { UserAPI } from '../redux/api/userAPI';
 import styled from 'styled-components/native'
 import MessageModel from '../components/Modals/MessageModal';
 
-const FormWrapper = styled.View`
+const FormWrapper = styled.View<{pinReady?: boolean}>`
     ${(props) => {
         return props.pinReady ? 'opacity: 1' : 'opacity: 0.3';
     }}

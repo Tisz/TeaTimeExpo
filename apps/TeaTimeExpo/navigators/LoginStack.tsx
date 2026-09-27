@@ -4,6 +4,7 @@ import { NavigationContainer } from '@react-navigation/native';
 import { createStackNavigator } from '@react-navigation/stack';
 import { useTheme } from 'styled-components/native';
 import { ThemeType } from '../components/Colors/Colors';
+import Login from '../screens/Login';
 
 const Stack = createStackNavigator();
 
@@ -31,7 +32,7 @@ const LoginStack = () => {
         initialRouteName='Login'
         
         >
-
+            <Stack.Screen name="Login" component={Login} />
         </Stack.Navigator>
     </NavigationContainer>;
 }

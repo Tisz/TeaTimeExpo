@@ -8,6 +8,8 @@ import {MaterialCommunityIcons} from '@expo/vector-icons';
 import { useTheme } from 'styled-components/native';
 import { ThemeType } from '../components/Colors/Colors';
 
+type IconName = React.ComponentProps<typeof MaterialCommunityIcons>['name'];
+
 const Tab = createBottomTabNavigator();
 
 const MainStack = () => {
@@ -16,7 +18,7 @@ const MainStack = () => {
       <Tab.Navigator
       screenOptions={({ route }) => ({
         tabBarIcon: ({ focused, color, size }) => {
-          let iconName: string;
+          let iconName: IconName = 'home';
           
           if (route.name === 'Home') {
             iconName = focused ? 'home' : 'home-outline';
