@@ -1,4 +1,5 @@
 import React, {useContext, useState} from 'react';
+import { Image } from 'react-native';
 
 import {MaterialCommunityIcons} from '@expo/vector-icons';
 import { useTheme } from 'styled-components/native';
@@ -7,6 +8,7 @@ import styled from 'styled-components/native'
 import ProfileModal from '../Modals/ProfileModal';
 import { AuthContext } from '../../context/AuthContext';
 import { UserAPI } from '../../redux/api/userAPI';
+import { useGetProfileQuery } from '../../redux/api/profileAPI';
 
 const StyledView = styled.TouchableOpacity`
     background-color: ${(props) => props.theme.primary};
@@ -20,6 +22,12 @@ const StyledView = styled.TouchableOpacity`
     border-color: ${(props) => props.theme.secondary};
     `;
 
+const AvatarImage = styled(Image)`
+    height: 41px;
+    width: 41px;
+    border-radius: 13px;
+`;
+
 const AvatarButton = (props) => {
     //modal
     const [modalVisibile, setModalVisibile] = useState(false);
@@ -27,6 +35,7 @@ const AvatarButton = (props) => {
     const { authState, setAuthState } = useContext(AuthContext);
 
     const [loggingOut, setLoggingOut] = useState(false);
+    const { data: profile } = useGetProfileQuery();
 
     const theme = useTheme() as ThemeType;
 
@@ -58,14 +67,17 @@ const AvatarButton = (props) => {
     }
 
     const onAvatarPress = () => {
-        showProfileModal("Rhys White");
+        showProfileModal(profile?.username ?? "Profile");
     }
 
 
     return (
         <>
         <StyledView onPress={onAvatarPress} style={props.imgContainerStyle}>
-            <MaterialCommunityIcons name="account" size={35} color={theme.accent}/>
+            {profile?.avatarUrl
+                ? <AvatarImage source={{ uri: profile.avatarUrl }} accessibilityLabel="Profile photo" />
+                : <MaterialCommunityIcons name="account" size={35} color={theme.accent}/>
+            }
         </StyledView>
         <ProfileModal 
             modalVisibile={modalVisibile} 

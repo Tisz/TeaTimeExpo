@@ -10,6 +10,13 @@ Parameters:
     MaxLength: 50
     AllowedPattern: "^[A-Za-z_]+$"
 
+  ProfilesTableName:
+    Type: String
+    Default: TeaProfiles
+    MinLength: 3
+    MaxLength: 50
+    AllowedPattern: "^[A-Za-z_]+$"
+
   CognitoUserPoolId:
     Type: String
     Description: Cognito user pool id used to validate websocket id tokens.
@@ -77,6 +84,44 @@ Resources:
         AttributeName: expiresAt
         Enabled: true
 
+  ProfilesTable:
+    Type: AWS::DynamoDB::Table
+    Properties:
+      TableName: !Ref ProfilesTableName
+      BillingMode: PAY_PER_REQUEST
+      AttributeDefinitions:
+        - AttributeName: userId
+          AttributeType: S
+      KeySchema:
+        - AttributeName: userId
+          KeyType: HASH
+
+  AvatarBucket:
+    Type: AWS::S3::Bucket
+    DeletionPolicy: Retain
+    UpdateReplacePolicy: Retain
+    Properties:
+      BucketEncryption:
+        ServerSideEncryptionConfiguration:
+          - ServerSideEncryptionByDefault:
+              SSEAlgorithm: AES256
+      OwnershipControls:
+        Rules:
+          - ObjectOwnership: BucketOwnerEnforced
+      PublicAccessBlockConfiguration:
+        BlockPublicAcls: true
+        BlockPublicPolicy: true
+        IgnorePublicAcls: true
+        RestrictPublicBuckets: true
+      VersioningConfiguration:
+        Status: Enabled
+      LifecycleConfiguration:
+        Rules:
+          - Id: RemoveOldAvatarVersions
+            Status: Enabled
+            NoncurrentVersionExpiration:
+              NoncurrentDays: 7
+
   PlaceIndex:
     Type: AWS::Location::PlaceIndex
     Properties:
@@ -103,6 +148,7 @@ Resources:
       Environment:
         Variables:
           CHAT_TABLE: !Ref ChatTableName
+          PROFILE_TABLE: !Ref ProfilesTableName
           COGNITO_USER_POOL_ID: !Ref CognitoUserPoolId
           COGNITO_REGION: !Ref CognitoRegion
           COGNITO_CLIENT_ID: !Ref CognitoClientId
@@ -126,6 +172,7 @@ Resources:
       Environment:
         Variables:
           CHAT_TABLE: !Ref ChatTableName
+          PROFILE_TABLE: !Ref ProfilesTableName
           COGNITO_USER_POOL_ID: !Ref CognitoUserPoolId
           COGNITO_REGION: !Ref CognitoRegion
           COGNITO_CLIENT_ID: !Ref CognitoClientId
@@ -150,6 +197,7 @@ Resources:
               - dynamodb:DeleteItem
             Resource:
               - !GetAtt ChatTable.Arn
+              - !GetAtt ProfilesTable.Arn
               - !Sub ${ChatTable.Arn}/index/GSI1
         - Statement:
             Effect: Allow
@@ -157,9 +205,16 @@ Resources:
               - execute-api:ManageConnections
             Resource:
               - !Sub arn:aws:execute-api:${AWS::Region}:${AWS::AccountId}:${SimpleChatWebSocketApi}/*/POST/@connections/*
+        - Statement:
+            Effect: Allow
+            Action:
+              - s3:GetObject
+            Resource: !Sub ${AvatarBucket.Arn}/profiles/*
       Environment:
         Variables:
           CHAT_TABLE: !Ref ChatTableName
+          PROFILE_TABLE: !Ref ProfilesTableName
+          AVATAR_BUCKET: !Ref AvatarBucket
           COGNITO_USER_POOL_ID: !Ref CognitoUserPoolId
           COGNITO_REGION: !Ref CognitoRegion
           COGNITO_CLIENT_ID: !Ref CognitoClientId
@@ -183,6 +238,7 @@ Resources:
       Environment:
         Variables:
           CHAT_TABLE: !Ref ChatTableName
+          PROFILE_TABLE: !Ref ProfilesTableName
           COGNITO_USER_POOL_ID: !Ref CognitoUserPoolId
           COGNITO_REGION: !Ref CognitoRegion
           COGNITO_CLIENT_ID: !Ref CognitoClientId
@@ -210,6 +266,7 @@ Resources:
       Environment:
         Variables:
           CHAT_TABLE: !Ref ChatTableName
+          PROFILE_TABLE: !Ref ProfilesTableName
           COGNITO_USER_POOL_ID: !Ref CognitoUserPoolId
           COGNITO_REGION: !Ref CognitoRegion
           COGNITO_CLIENT_ID: !Ref CognitoClientId
@@ -235,10 +292,20 @@ Resources:
             Effect: Allow
             Action:
               - dynamodb:Query
-            Resource: !GetAtt ChatTable.Arn
+              - dynamodb:BatchGetItem
+            Resource:
+              - !GetAtt ChatTable.Arn
+              - !GetAtt ProfilesTable.Arn
+        - Statement:
+            Effect: Allow
+            Action:
+              - s3:GetObject
+            Resource: !Sub ${AvatarBucket.Arn}/profiles/*
       Environment:
         Variables:
           CHAT_TABLE: !Ref ChatTableName
+          PROFILE_TABLE: !Ref ProfilesTableName
+          AVATAR_BUCKET: !Ref AvatarBucket
           COGNITO_USER_POOL_ID: !Ref CognitoUserPoolId
           COGNITO_REGION: !Ref CognitoRegion
           COGNITO_CLIENT_ID: !Ref CognitoClientId
@@ -248,6 +315,163 @@ Resources:
           Properties:
             Path: /rooms/{roomId}/messages
             Method: get
+
+  GetProfileFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      Handler: TeaAWS::TeaAWS.Functions::GetProfileHandler
+      Runtime: dotnet10
+      MemorySize: 512
+      Timeout: 30
+      Policies:
+        - Statement:
+            Effect: Allow
+            Action:
+              - dynamodb:GetItem
+            Resource: !GetAtt ProfilesTable.Arn
+        - Statement:
+            Effect: Allow
+            Action:
+              - s3:GetObject
+            Resource: !Sub ${AvatarBucket.Arn}/profiles/*
+      Environment:
+        Variables:
+          CHAT_TABLE: !Ref ChatTableName
+          PROFILE_TABLE: !Ref ProfilesTableName
+          AVATAR_BUCKET: !Ref AvatarBucket
+          COGNITO_USER_POOL_ID: !Ref CognitoUserPoolId
+          COGNITO_REGION: !Ref CognitoRegion
+          COGNITO_CLIENT_ID: !Ref CognitoClientId
+      Events:
+        Profile:
+          Type: Api
+          Properties:
+            Path: /profile
+            Method: get
+
+  UpdateProfileFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      Handler: TeaAWS::TeaAWS.Functions::UpdateProfileHandler
+      Runtime: dotnet10
+      MemorySize: 512
+      Timeout: 30
+      Policies:
+        - Statement:
+            Effect: Allow
+            Action:
+              - dynamodb:PutItem
+            Resource: !GetAtt ProfilesTable.Arn
+      Environment:
+        Variables:
+          CHAT_TABLE: !Ref ChatTableName
+          PROFILE_TABLE: !Ref ProfilesTableName
+          COGNITO_USER_POOL_ID: !Ref CognitoUserPoolId
+          COGNITO_REGION: !Ref CognitoRegion
+          COGNITO_CLIENT_ID: !Ref CognitoClientId
+      Events:
+        Profile:
+          Type: Api
+          Properties:
+            Path: /profile
+            Method: put
+
+  AvatarUploadUrlFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      Handler: TeaAWS::TeaAWS.Functions::CreateAvatarUploadUrlHandler
+      Runtime: dotnet10
+      MemorySize: 512
+      Timeout: 30
+      Policies:
+        - Statement:
+            Effect: Allow
+            Action:
+              - s3:PutObject
+            Resource: !Sub ${AvatarBucket.Arn}/profiles/*
+      Environment:
+        Variables:
+          CHAT_TABLE: !Ref ChatTableName
+          PROFILE_TABLE: !Ref ProfilesTableName
+          AVATAR_BUCKET: !Ref AvatarBucket
+          COGNITO_USER_POOL_ID: !Ref CognitoUserPoolId
+          COGNITO_REGION: !Ref CognitoRegion
+          COGNITO_CLIENT_ID: !Ref CognitoClientId
+      Events:
+        AvatarUploadUrl:
+          Type: Api
+          Properties:
+            Path: /profile/avatar/upload-url
+            Method: post
+
+  CompleteAvatarUploadFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      Handler: TeaAWS::TeaAWS.Functions::CompleteAvatarUploadHandler
+      Runtime: dotnet10
+      MemorySize: 512
+      Timeout: 30
+      Policies:
+        - Statement:
+            Effect: Allow
+            Action:
+              - dynamodb:GetItem
+              - dynamodb:UpdateItem
+            Resource: !GetAtt ProfilesTable.Arn
+        - Statement:
+            Effect: Allow
+            Action:
+              - s3:GetObject
+              - s3:DeleteObject
+            Resource: !Sub ${AvatarBucket.Arn}/profiles/*
+      Environment:
+        Variables:
+          CHAT_TABLE: !Ref ChatTableName
+          PROFILE_TABLE: !Ref ProfilesTableName
+          AVATAR_BUCKET: !Ref AvatarBucket
+          COGNITO_USER_POOL_ID: !Ref CognitoUserPoolId
+          COGNITO_REGION: !Ref CognitoRegion
+          COGNITO_CLIENT_ID: !Ref CognitoClientId
+      Events:
+        AvatarComplete:
+          Type: Api
+          Properties:
+            Path: /profile/avatar/complete
+            Method: post
+
+  DeleteAvatarFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      Handler: TeaAWS::TeaAWS.Functions::DeleteAvatarHandler
+      Runtime: dotnet10
+      MemorySize: 512
+      Timeout: 30
+      Policies:
+        - Statement:
+            Effect: Allow
+            Action:
+              - dynamodb:GetItem
+              - dynamodb:UpdateItem
+            Resource: !GetAtt ProfilesTable.Arn
+        - Statement:
+            Effect: Allow
+            Action:
+              - s3:DeleteObject
+            Resource: !Sub ${AvatarBucket.Arn}/profiles/*
+      Environment:
+        Variables:
+          CHAT_TABLE: !Ref ChatTableName
+          PROFILE_TABLE: !Ref ProfilesTableName
+          AVATAR_BUCKET: !Ref AvatarBucket
+          COGNITO_USER_POOL_ID: !Ref CognitoUserPoolId
+          COGNITO_REGION: !Ref CognitoRegion
+          COGNITO_CLIENT_ID: !Ref CognitoClientId
+      Events:
+        AvatarDelete:
+          Type: Api
+          Properties:
+            Path: /profile/avatar
+            Method: delete
 
   SimpleChatWebSocketApi:
     Type: AWS::ApiGatewayV2::Api

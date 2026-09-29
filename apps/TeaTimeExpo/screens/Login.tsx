@@ -1,6 +1,7 @@
 import React, {useState, useContext} from 'react';
 import { Formik } from 'formik';
 import { ActivityIndicator, Image } from 'react-native'
+import styled from 'styled-components/native';
 
 import { useTheme } from 'styled-components/native';
 import { ThemeType } from '../components/Colors/Colors';
@@ -12,12 +13,66 @@ import StyledTextInput from '../components/Inputs/StyledTextInput';
 import MessageBox from '../components/Texts/MessageBox';
 import RegularButton from '../components/Buttons/RegularButton';
 import PressableText from '../components/Texts/PressableText';
-import RowContainer from '../components/Containers/RowContainer';
 import { UserAPI } from '../redux/api/userAPI';
 
 
 //context
 import { AuthContext} from '../context/AuthContext';
+
+const LoginHeader = styled.View`
+    align-items: center;
+    background-color: ${(props) => props.theme.darkGrey};
+    min-height: 220px;
+    padding: 42px 25px 34px;
+`;
+
+const HeaderTitle = styled.Text`
+    color: ${(props) => props.theme.white};
+    font-size: 26px;
+    font-weight: bold;
+    margin-top: 8px;
+`;
+
+const HeaderSubtitle = styled.Text`
+    color: ${(props) => props.theme.white};
+    font-size: 15px;
+    margin-top: 6px;
+    opacity: 0.85;
+    text-align: center;
+`;
+
+const FormSurface = styled.View`
+    background-color: ${(props) => props.theme.secondary};
+    border-radius: 8px;
+    margin: -20px 20px 24px;
+    padding: 22px 18px;
+`;
+
+const FormTitle = styled.Text`
+    color: ${(props) => props.theme.tertiary};
+    font-size: 20px;
+    font-weight: bold;
+    margin-bottom: 6px;
+`;
+
+const FormSubtitle = styled.Text`
+    color: ${(props) => props.theme.lightGrey};
+    font-size: 14px;
+    margin-bottom: 22px;
+`;
+
+const PasswordActions = styled.View`
+    align-items: flex-end;
+    margin-top: -14px;
+    margin-bottom: 16px;
+`;
+
+const SignupPrompt = styled.View`
+    align-items: center;
+    flex-direction: row;
+    justify-content: center;
+    margin-top: 20px;
+`;
 
 const Login = ({navigation, route}) => {
     const theme = useTheme() as ThemeType;
@@ -57,40 +112,42 @@ const Login = ({navigation, route}) => {
         }
     }
 
-    return <MainContainer>
+    return <MainContainer style={{padding: 0}}>
         <KeyboardAvoidingContainer>
-            <Image
-                source={require('../assets/Tea_Logo.png')}
-                style={{
-                    width: 220,
-                    height: 80,
-                    alignSelf: 'center',
-                    marginBottom: 30,
-                }}
-                resizeMode="contain"
-            />
+            <LoginHeader>
+                <Image
+                    source={require('../assets/Tea_Logo.png')}
+                    style={{width: 190, height: 70}}
+                    resizeMode="contain"
+                />
+                <HeaderTitle>Welcome back</HeaderTitle>
+                <HeaderSubtitle>Join your local Tea Time conversation.</HeaderSubtitle>
+            </LoginHeader>
 
-            <RegularText style={{marginBottom: 25}}>
-                Enter your account details
-            </RegularText>
-
-            <Formik initialValues={{email: '', password: ''}}
-                onSubmit={(values, {setSubmitting}) => {
-                    if (values.email == "" || values.password == ""){
-                        setMessage("Please enter all fields");
-                        setSubmitting(false);
-                    }
-                    else {
-                        handleLogin(values, setSubmitting);
-                    }
-                }}>
-                {({handleChange, handleBlur, handleSubmit, values, isSubmitting}) => (
-                    <>
+            <FormSurface>
+                <FormTitle>Sign in</FormTitle>
+                <FormSubtitle>Enter your account details to continue.</FormSubtitle>
+                <Formik initialValues={{email: '', password: ''}}
+                    onSubmit={(values, {setSubmitting}) => {
+                        if (values.email == "" || values.password == ""){
+                            setMessage("Please enter all fields");
+                            setSubmitting(false);
+                        }
+                        else {
+                            handleLogin(values, setSubmitting);
+                        }
+                    }}>
+                    {({handleChange, handleBlur, handleSubmit, values, isSubmitting}) => (
+                        <>
                         <StyledTextInput 
                             label="Email" 
                             icon="email-variant" 
-                            placeholder="hello@bello.com" 
+                            placeholder="you@example.com" 
                             keyboardType="email-address"
+                            autoCapitalize="none"
+                            autoCorrect={false}
+                            textContentType="emailAddress"
+                            autoComplete="email"
                             onChangeText={handleChange('email')}
                             onBlur={handleBlur('email')}
                             value={values.email}
@@ -100,7 +157,9 @@ const Login = ({navigation, route}) => {
                         <StyledTextInput 
                             label="Password" 
                             icon="lock-open" 
-                            placeholder="* * * * * * * *" 
+                            placeholder="Enter your password" 
+                            textContentType="password"
+                            autoComplete="password"
                             onChangeText={handleChange('password')}
                             onBlur={handleBlur('password')}
                             value={values.password}
@@ -108,21 +167,25 @@ const Login = ({navigation, route}) => {
                             style={{marginBottom: 25}}
                         />
 
-                        <MessageBox success={isSuccessMessage} style={{marginBottom: 25}}>
-                            { message  || " "}
-                        </MessageBox>
+                        <PasswordActions>
+                            <PressableText onPress={() => {moveTo('ForgotPassword')}}>Forgot password?</PressableText>
+                        </PasswordActions>
+
+                        {!!message && <MessageBox success={isSuccessMessage} style={{marginBottom: 16}}>
+                            {message}
+                        </MessageBox>}
                         {!isSubmitting && <RegularButton onPress={handleSubmit}>Login</RegularButton>}
                         {isSubmitting && (<RegularButton disabled={true}><ActivityIndicator size="small" color={theme.primary}/></RegularButton>)}
 
-                        <RowContainer>                        
-                            <PressableText onPress={() => {moveTo('Signup')}}>New Account?</PressableText>
-                            <PressableText onPress={() => {moveTo('ForgotPassword')}}>Forgot Password?</PressableText>
-                        </RowContainer>
+                        <SignupPrompt>
+                            <RegularText>New to Tea Time? </RegularText>
+                            <PressableText onPress={() => {moveTo('Signup')}}>Create account</PressableText>
+                        </SignupPrompt>
 
-                    </>
-                )}
-            </Formik>
-
+                        </>
+                    )}
+                </Formik>
+            </FormSurface>
 
         </KeyboardAvoidingContainer>
     </MainContainer>

@@ -7,6 +7,8 @@ using Amazon.Lambda.Core;
 using Amazon.LocationService;
 using Amazon.LocationService.Model;
 using Amazon.Runtime;
+using Amazon.S3;
+using Amazon.S3.Model;
 using Microsoft.IdentityModel.Protocols;
 using Microsoft.IdentityModel.Protocols.OpenIdConnect;
 using Microsoft.IdentityModel.Tokens;
@@ -84,6 +86,11 @@ public sealed class CognitoJwtTokenValidator : IJwtTokenValidator
 
 public record LocalityInfo(string RoomId, string Suburb, string State, string Country);
 
+public record ProfileRequest(string? Username);
+public record AvatarUploadRequest(string? ContentType, long? ContentLength);
+public record AvatarCompleteRequest(string? ObjectKey);
+public record ChatProfile(string Username, string? AvatarUrl);
+
 public interface ILocalityResolver
 {
     Task<LocalityInfo?> ResolveAsync(double latitude, double longitude, CancellationToken cancellationToken = default);
@@ -158,13 +165,25 @@ public sealed class AmazonLocationLocalityResolver : ILocalityResolver
 public class Functions
 {
     private const string TableNameEnv = "CHAT_TABLE";
+    private const string ProfileTableNameEnv = "PROFILE_TABLE";
     private const string CognitoUserPoolIdEnv = "COGNITO_USER_POOL_ID";
     private const string CognitoRegionEnv = "COGNITO_REGION";
     private const string CognitoClientIdEnv = "COGNITO_CLIENT_ID";
     private const string ConnectionTtlSecondsEnv = "CONNECTION_TTL_SECONDS";
     private const string PersistHistoryEnv = "PERSIST_MESSAGE_HISTORY";
     private const string PlaceIndexNameEnv = "PLACE_INDEX_NAME";
+    private const string AvatarBucketNameEnv = "AVATAR_BUCKET";
     private const int MessageHistoryLimit = 10;
+    private const int MaxUsernameLength = 32;
+    private const long MaxAvatarBytes = 5 * 1024 * 1024;
+    private static readonly TimeSpan AvatarUploadUrlLifetime = TimeSpan.FromMinutes(5);
+    private static readonly TimeSpan AvatarReadUrlLifetime = TimeSpan.FromMinutes(15);
+    private static readonly IReadOnlyDictionary<string, string> AvatarExtensions = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
+    {
+        ["image/jpeg"] = ".jpg",
+        ["image/png"] = ".png",
+        ["image/webp"] = ".webp"
+    };
     private static readonly TimeSpan MessageRetention = TimeSpan.FromHours(24);
 
     public const string PK = "PK";
@@ -178,9 +197,14 @@ public class Functions
     public const string StateField = "state";
     public const string CountryField = "country";
     public const string ExpiresAtField = "expiresAt";
+    public const string UsernameField = "username";
+    public const string AvatarKeyField = "avatarKey";
 
     private readonly string _chatTable;
+    private readonly string _profileTable;
     private readonly IAmazonDynamoDB _ddbClient;
+    private readonly IAmazonS3? _s3Client;
+    private readonly string? _avatarBucket;
     private readonly Func<string, IAmazonApiGatewayManagementApi> _apiGatewayManagementApiClientFactory;
     private readonly IJwtTokenValidator _tokenValidator;
     private readonly int _connectionTtlSeconds;
@@ -194,8 +218,11 @@ public class Functions
     public Functions()
     {
         _ddbClient = new AmazonDynamoDBClient();
+        _s3Client = new AmazonS3Client();
         _chatTable = Environment.GetEnvironmentVariable(TableNameEnv)
             ?? throw new InvalidOperationException($"{TableNameEnv} not set");
+        _profileTable = Environment.GetEnvironmentVariable(ProfileTableNameEnv)
+            ?? throw new InvalidOperationException($"{ProfileTableNameEnv} not set");
 
         string userPoolId = Environment.GetEnvironmentVariable(CognitoUserPoolIdEnv)
             ?? throw new InvalidOperationException($"{CognitoUserPoolIdEnv} not set");
@@ -206,6 +233,7 @@ public class Functions
 
         _connectionTtlSeconds = ParseIntFromEnv(ConnectionTtlSecondsEnv, 900);
         _persistMessageHistory = ParseBoolFromEnv(PersistHistoryEnv, true);
+        _avatarBucket = Environment.GetEnvironmentVariable(AvatarBucketNameEnv);
 
         var placeIndexName = Environment.GetEnvironmentVariable(PlaceIndexNameEnv);
         if (!string.IsNullOrWhiteSpace(placeIndexName))
@@ -225,7 +253,8 @@ public class Functions
     /// </summary>
     /// <param name="ddbClient">The service client for accessing Amazon DynamoDB.</param>
     /// <param name="apiGatewayManagementApiClientFactory">The service client for accessing Amazon API Gateway.</param>
-    /// <param name="chatTable">Name of the DynamoDB table to store websocket records.</param>
+    /// <param name="chatTable">Name of the DynamoDB table to store chat records.</param>
+    /// <param name="profileTable">Name of the DynamoDB table to store profile records.</param>
     /// <param name="tokenValidator">JWT token validator used by OnConnect.</param>
     /// <param name="connectionTtlSeconds">TTL for websocket connection records.</param>
     /// <param name="persistMessageHistory">Controls whether messages are persisted.</param>
@@ -236,15 +265,21 @@ public class Functions
         IJwtTokenValidator tokenValidator,
         int connectionTtlSeconds = 900,
         bool persistMessageHistory = true,
-        ILocalityResolver? localityResolver = null)
+        ILocalityResolver? localityResolver = null,
+        string? profileTable = null,
+        IAmazonS3? s3Client = null,
+        string? avatarBucket = null)
     {
         _ddbClient = ddbClient;
         _apiGatewayManagementApiClientFactory = apiGatewayManagementApiClientFactory;
         _chatTable = chatTable;
+        _profileTable = profileTable ?? chatTable;
         _tokenValidator = tokenValidator;
         _connectionTtlSeconds = connectionTtlSeconds;
         _persistMessageHistory = persistMessageHistory;
         _localityResolver = localityResolver;
+        _s3Client = s3Client;
+        _avatarBucket = avatarBucket;
     }
 
     public async Task<APIGatewayProxyResponse> OnConnectHandler(APIGatewayProxyRequest request, ILambdaContext context)
@@ -343,6 +378,8 @@ public class Functions
                 return new APIGatewayProxyResponse { StatusCode = (int)HttpStatusCode.BadRequest, Body = "Connection has no room" };
             }
 
+            var senderProfile = await GetChatProfileAsync(senderUserId);
+
             // Construct the API Gateway endpoint that incoming message will be broadcasted to.
             var domainName = request.RequestContext.DomainName;
             var stage = request.RequestContext.Stage;
@@ -409,6 +446,8 @@ public class Functions
                 messageId,
                 message = data,
                 userId = senderUserId,
+                username = senderProfile?.Username ?? senderUserId,
+                avatarUrl = senderProfile?.AvatarUrl,
                 roomId,
                 messageTime = now.ToString("O")
             });
@@ -551,7 +590,7 @@ public class Functions
             Limit = limit.Value
         });
 
-        var messages = queryResponse.Items
+        var storedMessages = queryResponse.Items
             .Where(item => GetAttributeString(item, SK)?.StartsWith("MSG#", StringComparison.Ordinal) == true)
             .Select(item => new
             {
@@ -562,12 +601,276 @@ public class Functions
             })
             .Where(message => !string.IsNullOrWhiteSpace(message.messageId) &&
                 !string.IsNullOrWhiteSpace(message.message) &&
+                !string.IsNullOrWhiteSpace(message.userId) &&
                 !string.IsNullOrWhiteSpace(message.messageTime))
+            .ToArray();
+
+        var profiles = await GetChatProfilesAsync(storedMessages.Select(message => message.userId));
+        var messages = storedMessages
+            .Select(message => new
+            {
+                message.messageId,
+                message.message,
+                message.userId,
+                username = profiles.TryGetValue(message.userId!, out var profile)
+                    ? profile.Username
+                    : message.userId,
+                avatarUrl = profiles.TryGetValue(message.userId!, out profile)
+                    ? profile.AvatarUrl
+                    : null,
+                message.messageTime
+            })
             .Reverse()
             .ToArray();
 
         context.Logger.LogInformation($"route=recentMessages userId={validation.UserId} roomId={roomId} count={messages.Length}");
         return JsonResponse(HttpStatusCode.OK, new { roomId, messages });
+    }
+
+    public async Task<APIGatewayProxyResponse> GetProfileHandler(APIGatewayProxyRequest request, ILambdaContext context)
+    {
+        var validation = await ValidateAuthenticatedRequestAsync(request);
+        if (!validation.IsValid || string.IsNullOrWhiteSpace(validation.UserId))
+        {
+            return Unauthorized();
+        }
+
+        var response = await _ddbClient.GetItemAsync(new GetItemRequest
+        {
+            TableName = _profileTable,
+            Key = BuildProfileKey(validation.UserId)
+        });
+
+        return JsonResponse(HttpStatusCode.OK, new
+        {
+            username = GetAttributeString(response.Item, UsernameField),
+            avatarUrl = CreateAvatarReadUrl(GetAttributeString(response.Item, AvatarKeyField))
+        });
+    }
+
+    public async Task<APIGatewayProxyResponse> UpdateProfileHandler(APIGatewayProxyRequest request, ILambdaContext context)
+    {
+        var validation = await ValidateAuthenticatedRequestAsync(request);
+        if (!validation.IsValid || string.IsNullOrWhiteSpace(validation.UserId))
+        {
+            return Unauthorized();
+        }
+
+        ProfileRequest? profile;
+        try
+        {
+            profile = JsonSerializer.Deserialize<ProfileRequest>(request.Body ?? string.Empty, new JsonSerializerOptions
+            {
+                PropertyNameCaseInsensitive = true
+            });
+        }
+        catch (JsonException)
+        {
+            return BadRequest("Invalid profile payload");
+        }
+
+        var username = NormalizeUsername(profile?.Username);
+        if (username is null)
+        {
+            return BadRequest($"Username must be between 1 and {MaxUsernameLength} characters and cannot contain control characters");
+        }
+
+        var now = DateTimeOffset.UtcNow;
+        await _ddbClient.UpdateItemAsync(new UpdateItemRequest
+        {
+            TableName = _profileTable,
+            Key = BuildProfileKey(validation.UserId),
+            UpdateExpression = "SET #username = :username, #updatedAt = :updatedAt",
+            ExpressionAttributeNames = new Dictionary<string, string>
+            {
+                ["#username"] = UsernameField,
+                ["#updatedAt"] = "updatedAt"
+            },
+            ExpressionAttributeValues = new Dictionary<string, AttributeValue>
+            {
+                [":username"] = new AttributeValue { S = username },
+                [":updatedAt"] = new AttributeValue { S = now.ToString("O") }
+            }
+        });
+
+        return JsonResponse(HttpStatusCode.OK, new { username });
+    }
+
+    public async Task<APIGatewayProxyResponse> CreateAvatarUploadUrlHandler(APIGatewayProxyRequest request, ILambdaContext context)
+    {
+        var validation = await ValidateAuthenticatedRequestAsync(request);
+        if (!validation.IsValid || string.IsNullOrWhiteSpace(validation.UserId))
+        {
+            return Unauthorized();
+        }
+
+        if (!IsAvatarStorageConfigured())
+            return ServerError("Avatar storage is not configured");
+
+        AvatarUploadRequest? upload;
+        try
+        {
+            upload = JsonSerializer.Deserialize<AvatarUploadRequest>(request.Body ?? string.Empty, new JsonSerializerOptions
+            {
+                PropertyNameCaseInsensitive = true
+            });
+        }
+        catch (JsonException)
+        {
+            return BadRequest("Invalid avatar upload payload");
+        }
+
+        if (upload?.ContentLength is not > 0 or > MaxAvatarBytes ||
+            string.IsNullOrWhiteSpace(upload.ContentType) ||
+            !AvatarExtensions.TryGetValue(upload.ContentType, out var extension))
+        {
+            return BadRequest("Avatar must be a JPEG, PNG, or WebP image no larger than 5 MB");
+        }
+
+        var key = $"profiles/{validation.UserId}/{Guid.NewGuid():N}{extension}";
+        var uploadUrl = _s3Client!.GetPreSignedURL(new GetPreSignedUrlRequest
+        {
+            BucketName = _avatarBucket,
+            Key = key,
+            Verb = HttpVerb.PUT,
+            ContentType = upload.ContentType,
+            Expires = DateTime.UtcNow.Add(AvatarUploadUrlLifetime)
+        });
+
+        return JsonResponse(HttpStatusCode.OK, new
+        {
+            uploadUrl,
+            objectKey = key,
+            expiresAt = DateTimeOffset.UtcNow.Add(AvatarUploadUrlLifetime).ToString("O")
+        });
+    }
+
+    public async Task<APIGatewayProxyResponse> CompleteAvatarUploadHandler(APIGatewayProxyRequest request, ILambdaContext context)
+    {
+        var validation = await ValidateAuthenticatedRequestAsync(request);
+        if (!validation.IsValid || string.IsNullOrWhiteSpace(validation.UserId))
+        {
+            return Unauthorized();
+        }
+
+        if (!IsAvatarStorageConfigured())
+        {
+            return ServerError("Avatar storage is not configured");
+        }
+
+        AvatarCompleteRequest? completion;
+        try
+        {
+            completion = JsonSerializer.Deserialize<AvatarCompleteRequest>(request.Body ?? string.Empty, new JsonSerializerOptions
+            {
+                PropertyNameCaseInsensitive = true
+            });
+        }
+        catch (JsonException)
+        {
+            return BadRequest("Invalid avatar completion payload");
+        }
+
+        var objectKey = completion?.ObjectKey;
+        if (!IsUsersAvatarKey(validation.UserId, objectKey))
+        {
+            return BadRequest("Avatar object key is invalid");
+        }
+
+        GetObjectMetadataResponse metadata;
+        try
+        {
+            metadata = await _s3Client!.GetObjectMetadataAsync(_avatarBucket!, objectKey!);
+        }
+        catch (AmazonS3Exception exception) when (exception.StatusCode == HttpStatusCode.NotFound)
+        {
+            return NotFound("Uploaded avatar was not found");
+        }
+
+        if (metadata.ContentLength is <= 0 or > MaxAvatarBytes ||
+            string.IsNullOrWhiteSpace(metadata.Headers.ContentType) ||
+            !AvatarExtensions.ContainsKey(metadata.Headers.ContentType))
+        {
+            return BadRequest("Uploaded avatar is not an allowed image");
+        }
+
+        var currentProfile = await _ddbClient.GetItemAsync(new GetItemRequest
+        {
+            TableName = _profileTable,
+            Key = BuildProfileKey(validation.UserId),
+            ProjectionExpression = AvatarKeyField
+        });
+        var previousAvatarKey = GetAttributeString(currentProfile.Item, AvatarKeyField);
+        var now = DateTimeOffset.UtcNow;
+
+        await _ddbClient.UpdateItemAsync(new UpdateItemRequest
+        {
+            TableName = _profileTable,
+            Key = BuildProfileKey(validation.UserId),
+            UpdateExpression = "SET #avatarKey = :avatarKey, #updatedAt = :updatedAt",
+            ExpressionAttributeNames = new Dictionary<string, string>
+            {
+                ["#avatarKey"] = AvatarKeyField,
+                ["#updatedAt"] = "updatedAt"
+            },
+            ExpressionAttributeValues = new Dictionary<string, AttributeValue>
+            {
+                [":avatarKey"] = new AttributeValue { S = objectKey },
+                [":updatedAt"] = new AttributeValue { S = now.ToString("O") }
+            }
+        });
+
+        if (IsUsersAvatarKey(validation.UserId, previousAvatarKey) && previousAvatarKey != objectKey)
+        {
+            await _s3Client.DeleteObjectAsync(_avatarBucket!, previousAvatarKey!);
+        }
+
+        return JsonResponse(HttpStatusCode.OK, new { avatarUrl = CreateAvatarReadUrl(objectKey) });
+    }
+
+    public async Task<APIGatewayProxyResponse> DeleteAvatarHandler(APIGatewayProxyRequest request, ILambdaContext context)
+    {
+        var validation = await ValidateAuthenticatedRequestAsync(request);
+        if (!validation.IsValid || string.IsNullOrWhiteSpace(validation.UserId))
+        {
+            return Unauthorized();
+        }
+
+        if (!IsAvatarStorageConfigured())
+        {
+            return ServerError("Avatar storage is not configured");
+        }
+
+        var currentProfile = await _ddbClient.GetItemAsync(new GetItemRequest
+        {
+            TableName = _profileTable,
+            Key = BuildProfileKey(validation.UserId),
+            ProjectionExpression = AvatarKeyField
+        });
+        var avatarKey = GetAttributeString(currentProfile.Item, AvatarKeyField);
+
+        await _ddbClient.UpdateItemAsync(new UpdateItemRequest
+        {
+            TableName = _profileTable,
+            Key = BuildProfileKey(validation.UserId),
+            UpdateExpression = "SET #updatedAt = :updatedAt REMOVE #avatarKey",
+            ExpressionAttributeNames = new Dictionary<string, string>
+            {
+                ["#avatarKey"] = AvatarKeyField,
+                ["#updatedAt"] = "updatedAt"
+            },
+            ExpressionAttributeValues = new Dictionary<string, AttributeValue>
+            {
+                [":updatedAt"] = new AttributeValue { S = DateTimeOffset.UtcNow.ToString("O") }
+            }
+        });
+
+        if (IsUsersAvatarKey(validation.UserId, avatarKey))
+        {
+            await _s3Client!.DeleteObjectAsync(_avatarBucket!, avatarKey!);
+        }
+
+        return new APIGatewayProxyResponse { StatusCode = (int)HttpStatusCode.NoContent };
     }
 
     public async Task<APIGatewayProxyResponse> SetLocationHandler(APIGatewayProxyRequest request, ILambdaContext context)
@@ -720,6 +1023,122 @@ public class Functions
 
     private static string BuildConnectionPk(string connectionId) => $"CONN#{connectionId}";
     private static string BuildRoomPk(string roomId) => $"ROOM#{roomId}";
+
+    private static Dictionary<string, AttributeValue> BuildProfileKey(string userId) => new()
+    {
+        { UserIdField, new AttributeValue { S = userId } }
+    };
+
+    private static string? NormalizeUsername(string? username)
+    {
+        var normalized = username?.Trim();
+        return !string.IsNullOrWhiteSpace(normalized) &&
+            normalized.Length <= MaxUsernameLength &&
+            normalized.All(character => !char.IsControl(character))
+            ? normalized
+            : null;
+    }
+
+    private bool IsAvatarStorageConfigured() =>
+        _s3Client is not null && !string.IsNullOrWhiteSpace(_avatarBucket);
+
+    private static bool IsUsersAvatarKey(string userId, string? objectKey) =>
+        !string.IsNullOrWhiteSpace(objectKey) &&
+        objectKey.StartsWith($"profiles/{userId}/", StringComparison.Ordinal) &&
+        AvatarExtensions.Values.Any(extension => objectKey.EndsWith(extension, StringComparison.OrdinalIgnoreCase));
+
+    private string? CreateAvatarReadUrl(string? objectKey)
+    {
+        if (!IsAvatarStorageConfigured() || string.IsNullOrWhiteSpace(objectKey))
+        {
+            return null;
+        }
+
+        return _s3Client!.GetPreSignedURL(new GetPreSignedUrlRequest
+        {
+            BucketName = _avatarBucket,
+            Key = objectKey,
+            Verb = HttpVerb.GET,
+            Expires = DateTime.UtcNow.Add(AvatarReadUrlLifetime)
+        });
+    }
+
+    private async Task<ChatProfile?> GetChatProfileAsync(string userId)
+    {
+        var response = await _ddbClient.GetItemAsync(new GetItemRequest
+        {
+            TableName = _profileTable,
+            Key = BuildProfileKey(userId),
+            ProjectionExpression = $"{UsernameField}, {AvatarKeyField}"
+        });
+
+        var username = GetAttributeString(response.Item, UsernameField);
+        return string.IsNullOrWhiteSpace(username)
+            ? null
+            : new ChatProfile(username, CreateAvatarReadUrl(GetAttributeString(response.Item, AvatarKeyField)));
+    }
+
+    private async Task<IReadOnlyDictionary<string, ChatProfile>> GetChatProfilesAsync(IEnumerable<string?> userIds)
+    {
+        var keys = userIds
+            .Where(userId => !string.IsNullOrWhiteSpace(userId))
+            .Select(userId => BuildProfileKey(userId!))
+            .DistinctBy(key => key[UserIdField].S)
+            .ToList();
+
+        if (keys.Count == 0)
+        {
+            return new Dictionary<string, ChatProfile>();
+        }
+
+        var request = new BatchGetItemRequest
+        {
+            RequestItems = new Dictionary<string, KeysAndAttributes>
+            {
+                {
+                    _profileTable,
+                    new KeysAndAttributes
+                    {
+                        Keys = keys,
+                        ProjectionExpression = $"{UserIdField}, {UsernameField}, {AvatarKeyField}"
+                    }
+                }
+            }
+        };
+        var profiles = new Dictionary<string, ChatProfile>();
+
+        do
+        {
+            var response = await _ddbClient.BatchGetItemAsync(request) ?? new BatchGetItemResponse();
+            if (response.Responses?.TryGetValue(_profileTable, out var profileItems) == true)
+            {
+                foreach (var profileItem in profileItems)
+                {
+                    var userId = GetAttributeString(profileItem, UserIdField);
+                    var username = GetAttributeString(profileItem, UsernameField);
+                    if (!string.IsNullOrWhiteSpace(userId) && !string.IsNullOrWhiteSpace(username))
+                    {
+                        profiles[userId] = new ChatProfile(
+                            username,
+                            CreateAvatarReadUrl(GetAttributeString(profileItem, AvatarKeyField)));
+                    }
+                }
+            }
+
+            request.RequestItems = response.UnprocessedKeys ?? new Dictionary<string, KeysAndAttributes>();
+        }
+        while (request.RequestItems.Count > 0);
+
+        return profiles;
+    }
+
+    private async Task<TokenValidationResult> ValidateAuthenticatedRequestAsync(APIGatewayProxyRequest request)
+    {
+        var token = TryReadToken(request);
+        return string.IsNullOrWhiteSpace(token)
+            ? new TokenValidationResult(false, null, "Missing token")
+            : await _tokenValidator.ValidateAsync(token);
+    }
 
     private static string? NormalizeRoomId(string? roomId)
     {

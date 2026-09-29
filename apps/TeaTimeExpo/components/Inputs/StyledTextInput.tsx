@@ -51,17 +51,17 @@ interface StyledTextInputProps {
 const StyledTextInput = ({icon = null, label, isPassword = false,
         overrideHeight=60, overrideFontSize=16, ...props}: StyledTextInputProps) => {
     const theme = useTheme() as ThemeType;
-    const [inputBackgroundColor, setInputBackgroundColor] = useState(theme.primary);
+    const [isFocused, setIsFocused] = useState(false);
     const [hidePassword, setHidePassword] = useState(true);
 
-    const customOnBlur = () => {
-        props?.Onblur;
-        setInputBackgroundColor(theme.primary);
+    const customOnBlur = (event) => {
+        setIsFocused(false);
+        props?.onBlur?.(event);
     }
 
-    const customOnFocus = () => {
-        props?.onFocus;
-        setInputBackgroundColor(theme.secondary);
+    const customOnFocus = (event) => {
+        setIsFocused(true);
+        props?.onFocus?.(event);
     }
 
     return (<View>
@@ -75,7 +75,7 @@ const StyledTextInput = ({icon = null, label, isPassword = false,
         <InputField
             {...props}
             placeholderTextColor={theme.lightGrey}
-            style={{backgroundColor: inputBackgroundColor, height: overrideHeight, fontSize: overrideFontSize, ...props?.style}}
+            style={{backgroundColor: isFocused ? theme.secondary : theme.primary, height: overrideHeight, fontSize: overrideFontSize, ...props?.style}}
             onBlur={customOnBlur}
             onFocus={customOnFocus}
             secureTextEntry={isPassword && hidePassword}

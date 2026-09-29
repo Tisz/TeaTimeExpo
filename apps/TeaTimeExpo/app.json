@@ -28,12 +28,21 @@
     },
     "plugins": [
       "expo-localization",
-      "expo-status-bar"
+      "expo-status-bar",
+      [
+        "expo-image-picker",
+        {
+          "photosPermission": "Allow Tea Time to access your photos so you can set a profile picture."
+        }
+      ]
     ],
     "extra": {
       "cognitoRegion": "ap-southeast-2",
       "cognitoUserPoolId": "ap-southeast-2_7xMoJ8i4B",
-      "cognitoUserPoolClientId": "3k7m534msd10a7cjmlbsc3caf9"
+      "cognitoUserPoolClientId": "3k7m534msd10a7cjmlbsc3caf9",
+      "locationApiBaseUrl": "https://pugcsdmf47.execute-api.ap-southeast-2.amazonaws.com/Prod",
+      "chatApiBaseUrl": "https://pugcsdmf47.execute-api.ap-southeast-2.amazonaws.com/Stage",
+      "webSocketBaseUrl": "wss://kv64fohoj8.execute-api.ap-southeast-2.amazonaws.com/Prod"
     }
   }
 }

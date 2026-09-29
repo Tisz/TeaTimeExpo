@@ -7,6 +7,8 @@ export type RecentMessage = {
   messageId: string;
   message: string;
   userId: string;
+  username?: string;
+  avatarUrl?: string | null;
   messageTime: string;
 };
 

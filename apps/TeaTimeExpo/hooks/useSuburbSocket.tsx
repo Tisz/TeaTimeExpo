@@ -198,7 +198,8 @@ export const useSuburbSocket = () => {
           dispatch(
             addMessage({
               messageId: parsed.messageId ?? `${parsed.userId ?? 'unknown'}-${parsed.messageTime ?? Date.now()}-${messageText}`,
-              username: parsed.userId ?? 'Someone',
+              username: parsed.username ?? parsed.userId ?? 'Someone',
+              avatarUrl: parsed.avatarUrl ?? null,
               message: messageText,
               messageTime: parsed.messageTime ?? new Date().toISOString(),
               sender: 'other',
@@ -254,7 +255,8 @@ export const useSuburbSocket = () => {
           setMessageHistory(
             history.messages.map((message) => ({
               messageId: message.messageId,
-              username: message.userId || 'Someone',
+              username: message.username || message.userId || 'Someone',
+              avatarUrl: message.avatarUrl ?? null,
               message: message.message,
               messageTime: message.messageTime,
               sender: 'other',

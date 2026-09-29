@@ -14,13 +14,15 @@ namespace TeaAWS.Tests;
 public class FunctionsTest
 {
     private const string TableName = "mocktable";
+    private const string ProfileTableName = "profiletable";
 
     private static Functions BuildFunctions(
         Mock<IAmazonDynamoDB> ddb,
         Mock<IAmazonApiGatewayManagementApi> api,
         Mock<IJwtTokenValidator> validator,
         bool persistMessageHistory = true,
-        ILocalityResolver? localityResolver = null)
+        ILocalityResolver? localityResolver = null,
+        string profileTable = ProfileTableName)
     {
         return new Functions(
             ddb.Object,
@@ -29,7 +31,8 @@ public class FunctionsTest
             validator.Object,
             connectionTtlSeconds: 900,
             persistMessageHistory: persistMessageHistory,
-            localityResolver: localityResolver);
+            localityResolver: localityResolver,
+            profileTable: profileTable);
     }
 
     [Fact]
@@ -120,6 +123,110 @@ public class FunctionsTest
         }, new TestLambdaContext());
 
         Assert.Equal(401, response.StatusCode);
+    }
+
+    [Fact]
+    public async Task UpdateProfile_PersistsUsernameForAuthenticatedUser()
+    {
+        var mockDdbClient = new Mock<IAmazonDynamoDB>();
+        var validator = new Mock<IJwtTokenValidator>();
+        validator
+            .Setup(v => v.ValidateAsync("token-123", It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new TokenValidationResult(true, "user-1", null));
+
+        mockDdbClient
+            .Setup(client => client.UpdateItemAsync(It.IsAny<UpdateItemRequest>(), It.IsAny<CancellationToken>()))
+            .Callback<UpdateItemRequest, CancellationToken>((request, _) =>
+            {
+                Assert.Equal("profiletable", request.TableName);
+                Assert.Equal("user-1", request.Key[Functions.UserIdField].S);
+                Assert.Equal("SET #username = :username, #updatedAt = :updatedAt", request.UpdateExpression);
+                Assert.Equal("Tea Friend", request.ExpressionAttributeValues[":username"].S);
+            })
+            .ReturnsAsync(new UpdateItemResponse());
+
+        var functions = BuildFunctions(
+            mockDdbClient,
+            new Mock<IAmazonApiGatewayManagementApi>(),
+            validator,
+            profileTable: "profiletable");
+
+        var response = await functions.UpdateProfileHandler(new APIGatewayProxyRequest
+        {
+            Headers = new Dictionary<string, string> { ["Authorization"] = "Bearer token-123" },
+            Body = "{\"username\":\" Tea Friend \"}"
+        }, new TestLambdaContext());
+
+        Assert.Equal(200, response.StatusCode);
+        Assert.Equal("{\"username\":\"Tea Friend\"}", response.Body);
+        mockDdbClient.Verify(
+            client => client.PutItemAsync(It.IsAny<PutItemRequest>(), It.IsAny<CancellationToken>()),
+            Times.Never);
+    }
+
+    [Fact]
+    public async Task UpdateProfile_RejectsEmptyUsername()
+    {
+        var mockDdbClient = new Mock<IAmazonDynamoDB>();
+        var validator = new Mock<IJwtTokenValidator>();
+        validator
+            .Setup(v => v.ValidateAsync("token-123", It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new TokenValidationResult(true, "user-1", null));
+
+        var functions = BuildFunctions(
+            mockDdbClient,
+            new Mock<IAmazonApiGatewayManagementApi>(),
+            validator);
+
+        var response = await functions.UpdateProfileHandler(new APIGatewayProxyRequest
+        {
+            Headers = new Dictionary<string, string> { ["Authorization"] = "Bearer token-123" },
+            Body = "{\"username\":\"   \"}"
+        }, new TestLambdaContext());
+
+        Assert.Equal(400, response.StatusCode);
+        mockDdbClient.Verify(
+            client => client.PutItemAsync(It.IsAny<PutItemRequest>(), It.IsAny<CancellationToken>()),
+            Times.Never);
+    }
+
+    [Fact]
+    public async Task GetProfile_ReturnsAuthenticatedUsersUsername()
+    {
+        var mockDdbClient = new Mock<IAmazonDynamoDB>();
+        var validator = new Mock<IJwtTokenValidator>();
+        validator
+            .Setup(v => v.ValidateAsync("token-123", It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new TokenValidationResult(true, "user-1", null));
+
+        mockDdbClient
+            .Setup(client => client.GetItemAsync(It.IsAny<GetItemRequest>(), It.IsAny<CancellationToken>()))
+            .Callback<GetItemRequest, CancellationToken>((request, _) =>
+            {
+                Assert.Equal("profiletable", request.TableName);
+                Assert.Equal("user-1", request.Key[Functions.UserIdField].S);
+            })
+            .ReturnsAsync(new GetItemResponse
+            {
+                Item = new Dictionary<string, AttributeValue>
+                {
+                    { Functions.UsernameField, new AttributeValue { S = "Tea Friend" } }
+                }
+            });
+
+        var functions = BuildFunctions(
+            mockDdbClient,
+            new Mock<IAmazonApiGatewayManagementApi>(),
+            validator,
+            profileTable: "profiletable");
+
+        var response = await functions.GetProfileHandler(new APIGatewayProxyRequest
+        {
+            Headers = new Dictionary<string, string> { ["Authorization"] = "Bearer token-123" }
+        }, new TestLambdaContext());
+
+        Assert.Equal(200, response.StatusCode);
+        Assert.Equal("{\"username\":\"Tea Friend\",\"avatarUrl\":null}", response.Body);
     }
 
     [Fact]
@@ -278,6 +385,32 @@ public class FunctionsTest
                 }
             });
 
+        mockDdbClient
+            .Setup(client => client.BatchGetItemAsync(It.IsAny<BatchGetItemRequest>(), It.IsAny<CancellationToken>()))
+            .Callback<BatchGetItemRequest, CancellationToken>((request, _) =>
+            {
+                Assert.Contains(ProfileTableName, request.RequestItems.Keys);
+                Assert.Single(request.RequestItems[ProfileTableName].Keys);
+                Assert.Equal("user-1", request.RequestItems[ProfileTableName].Keys[0][Functions.UserIdField].S);
+            })
+            .ReturnsAsync(new BatchGetItemResponse
+            {
+                Responses = new Dictionary<string, List<Dictionary<string, AttributeValue>>>
+                {
+                    {
+                        ProfileTableName,
+                        new List<Dictionary<string, AttributeValue>>
+                        {
+                            new()
+                            {
+                                { Functions.UserIdField, new AttributeValue { S = "user-1" } },
+                                { Functions.UsernameField, new AttributeValue { S = "Tea Friend" } }
+                            }
+                        }
+                    }
+                }
+            });
+
         var functions = BuildFunctions(mockDdbClient, new Mock<IAmazonApiGatewayManagementApi>(), validator);
         var response = await functions.GetRecentMessagesHandler(new APIGatewayProxyRequest
         {
@@ -286,6 +419,7 @@ public class FunctionsTest
         }, new TestLambdaContext());
 
         Assert.Equal(200, response.StatusCode);
+        Assert.Contains("\"username\":\"Tea Friend\"", response.Body);
         Assert.Contains("\"messageId\":\"older\"", response.Body);
         Assert.True(response.Body.IndexOf("older", StringComparison.Ordinal) < response.Body.IndexOf("newer", StringComparison.Ordinal));
     }
@@ -403,6 +537,7 @@ public class FunctionsTest
             {
                 Assert.Equal(TableName, request.TableName);
                 Assert.Equal("ROOM#AU#NSW#SYDNEY", request.Item[Functions.PK].S);
+                Assert.False(request.Item.ContainsKey(Functions.UsernameField));
             })
             .ReturnsAsync(new PutItemResponse());
 
