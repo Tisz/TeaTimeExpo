@@ -18,6 +18,51 @@ import {
 } from '../redux/api/profileAPI';
 import { useTheme } from 'styled-components/native';
 import { ThemeType } from '../components/Colors/Colors';
+import { logError } from '../utils/errorLogger';
+
+const getRequestErrorMessage = (error: unknown, fallback: string): string => {
+    if (error instanceof Error && error.message) {
+        return error.message;
+    }
+
+    if (error && typeof error === 'object') {
+        const requestError = error as { data?: unknown; error?: unknown; status?: unknown };
+
+        if (typeof requestError.data === 'string' && requestError.data) {
+            return requestError.data;
+        }
+
+        if (requestError.data && typeof requestError.data === 'object' && 'message' in requestError.data) {
+            const message = (requestError.data as { message?: unknown }).message;
+            if (typeof message === 'string' && message) {
+                return message;
+            }
+        }
+
+        if (typeof requestError.error === 'string' && requestError.error) {
+            return requestError.error;
+        }
+
+        if (typeof requestError.status === 'number') {
+            return `Request failed with status ${requestError.status}.`;
+        }
+    }
+
+    return fallback;
+};
+
+const getS3UploadError = async (response: Response): Promise<Error> => {
+    const responseBody = await response.text();
+    const errorCode = responseBody.match(/<Code>([^<]+)<\/Code>/)?.[1];
+    const requestId = response.headers.get('x-amz-request-id');
+    const details = [
+        errorCode ? `S3 error: ${errorCode}` : null,
+        `HTTP ${response.status}`,
+        requestId ? `request ID: ${requestId}` : null,
+    ].filter(Boolean).join(', ');
+
+    return new Error(`The image upload was rejected (${details}).`);
+};
 
 const SettingsHeader = styled.View`
     background-color: ${(props) => props.theme.darkGrey};
@@ -181,9 +226,8 @@ const NotificationSettings = () => {
             setUsername(trimmedUsername);
             Alert.alert('Saved', 'Your username has been updated.');
         } catch (error) {
-            const message = error && typeof error === 'object' && 'data' in error && typeof error.data === 'string'
-                ? error.data
-                : 'Unable to update your username.';
+            logError('ProfileSettings', 'update username', error, { usernameLength: trimmedUsername.length });
+            const message = getRequestErrorMessage(error, 'Unable to update your username.');
             Alert.alert('Could not save username', message);
         }
     }, [updateProfile, username]);
@@ -225,13 +269,17 @@ const NotificationSettings = () => {
             });
 
             if (!uploadResponse.ok) {
-                throw new Error('The image could not be uploaded.');
+                throw await getS3UploadError(uploadResponse);
             }
 
             await completeAvatarUpload({ objectKey: upload.objectKey }).unwrap();
             Alert.alert('Saved', 'Your profile photo has been updated.');
         } catch (error) {
-            const message = error instanceof Error ? error.message : 'Unable to update your profile photo.';
+            logError('ProfileSettings', 'update avatar', error, {
+                contentLength: asset.fileSize,
+                contentType: asset.mimeType,
+            });
+            const message = getRequestErrorMessage(error, 'Unable to update your profile photo.');
             Alert.alert('Could not update photo', message);
         }
     }, [completeAvatarUpload, createAvatarUploadUrl]);
@@ -239,8 +287,9 @@ const NotificationSettings = () => {
     const handleDeleteAvatar = useCallback(async () => {
         try {
             await deleteAvatar().unwrap();
-        } catch {
-            Alert.alert('Could not remove photo', 'Try again shortly.');
+        } catch (error) {
+            logError('ProfileSettings', 'delete avatar', error);
+            Alert.alert('Could not remove photo', getRequestErrorMessage(error, 'Try again shortly.'));
         }
     }, [deleteAvatar]);
 

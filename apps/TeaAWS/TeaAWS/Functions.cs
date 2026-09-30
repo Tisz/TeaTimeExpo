@@ -676,22 +676,30 @@ public class Functions
         }
 
         var now = DateTimeOffset.UtcNow;
-        await _ddbClient.UpdateItemAsync(new UpdateItemRequest
+        try
         {
-            TableName = _profileTable,
-            Key = BuildProfileKey(validation.UserId),
-            UpdateExpression = "SET #username = :username, #updatedAt = :updatedAt",
-            ExpressionAttributeNames = new Dictionary<string, string>
+            await _ddbClient.UpdateItemAsync(new UpdateItemRequest
             {
-                ["#username"] = UsernameField,
-                ["#updatedAt"] = "updatedAt"
-            },
-            ExpressionAttributeValues = new Dictionary<string, AttributeValue>
-            {
-                [":username"] = new AttributeValue { S = username },
-                [":updatedAt"] = new AttributeValue { S = now.ToString("O") }
-            }
-        });
+                TableName = _profileTable,
+                Key = BuildProfileKey(validation.UserId),
+                UpdateExpression = "SET #username = :username, #updatedAt = :updatedAt",
+                ExpressionAttributeNames = new Dictionary<string, string>
+                {
+                    ["#username"] = UsernameField,
+                    ["#updatedAt"] = "updatedAt"
+                },
+                ExpressionAttributeValues = new Dictionary<string, AttributeValue>
+                {
+                    [":username"] = new AttributeValue { S = username },
+                    [":updatedAt"] = new AttributeValue { S = now.ToString("O") }
+                }
+            });
+        }
+        catch (Exception exception)
+        {
+            context.Logger.LogInformation($"route=updateProfile userId={validation.UserId} reason=update_failed error={exception.Message}");
+            return ServerError("Unable to save username");
+        }
 
         return JsonResponse(HttpStatusCode.OK, new { username });
     }
@@ -733,9 +741,10 @@ public class Functions
             BucketName = _avatarBucket,
             Key = key,
             Verb = HttpVerb.PUT,
-            ContentType = upload.ContentType,
             Expires = DateTime.UtcNow.Add(AvatarUploadUrlLifetime)
         });
+
+        context.Logger.LogInformation($"route=createAvatarUploadUrl userId={validation.UserId} contentType={upload.ContentType} contentLength={upload.ContentLength} objectKey={key}");
 
         return JsonResponse(HttpStatusCode.OK, new
         {
@@ -787,12 +796,26 @@ public class Functions
             return NotFound("Uploaded avatar was not found");
         }
 
-        if (metadata.ContentLength is <= 0 or > MaxAvatarBytes ||
-            string.IsNullOrWhiteSpace(metadata.Headers.ContentType) ||
-            !AvatarExtensions.ContainsKey(metadata.Headers.ContentType))
+        if (metadata.ContentLength is <= 0 or > MaxAvatarBytes)
         {
-            return BadRequest("Uploaded avatar is not an allowed image");
+            return BadRequest("Uploaded avatar is empty or exceeds the 5 MB limit");
         }
+
+        var contentType = GetAvatarContentType(objectKey!);
+        if (contentType is null)
+        {
+            return BadRequest("Uploaded avatar has an invalid file type");
+        }
+
+        await _s3Client.CopyObjectAsync(new CopyObjectRequest
+        {
+            SourceBucket = _avatarBucket,
+            SourceKey = objectKey,
+            DestinationBucket = _avatarBucket,
+            DestinationKey = objectKey,
+            MetadataDirective = S3MetadataDirective.REPLACE,
+            ContentType = contentType
+        });
 
         var currentProfile = await _ddbClient.GetItemAsync(new GetItemRequest
         {
@@ -1046,6 +1069,9 @@ public class Functions
         !string.IsNullOrWhiteSpace(objectKey) &&
         objectKey.StartsWith($"profiles/{userId}/", StringComparison.Ordinal) &&
         AvatarExtensions.Values.Any(extension => objectKey.EndsWith(extension, StringComparison.OrdinalIgnoreCase));
+
+    private static string? GetAvatarContentType(string objectKey) =>
+        AvatarExtensions.FirstOrDefault(pair => objectKey.EndsWith(pair.Value, StringComparison.OrdinalIgnoreCase)).Key;
 
     private string? CreateAvatarReadUrl(string? objectKey)
     {

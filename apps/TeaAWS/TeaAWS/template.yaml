@@ -360,7 +360,7 @@ Resources:
         - Statement:
             Effect: Allow
             Action:
-              - dynamodb:PutItem
+              - dynamodb:UpdateItem
             Resource: !GetAtt ProfilesTable.Arn
       Environment:
         Variables:
@@ -422,6 +422,7 @@ Resources:
             Effect: Allow
             Action:
               - s3:GetObject
+              - s3:PutObject
               - s3:DeleteObject
             Resource: !Sub ${AvatarBucket.Arn}/profiles/*
       Environment:
