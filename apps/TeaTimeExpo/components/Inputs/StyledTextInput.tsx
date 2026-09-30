@@ -7,7 +7,7 @@ import styled from 'styled-components/native'
 import SmallText from '../Texts/SmallText';
 
 const InputField = styled.TextInput`
-    background-color: ${(props) => props.theme.primary};
+    background-color: ${(props) => props.theme.inputBackground};
     padding: 15px;
     padding-left: 65px;
     padding-right: 55px;
@@ -17,7 +17,7 @@ const InputField = styled.TextInput`
     margin-top: 3px;
     margin-bottom: 10px;
     color: ${(props) => props.theme.tertiary};
-    border-color: ${(props) => props.theme.secondary}; 
+    border-color: ${(props) => props.theme.inputBorder};
     border-width: 2px;
     `;
 
@@ -27,7 +27,7 @@ const LeftIcon = styled.View`
     left: 15px;
     z-index: 1;
     border-right-width: 2px;
-    border-color: ${(props) => props.theme.secondary};
+    border-color: ${(props) => props.theme.inputBorder};
     padding-right: 10px;
 `;
 
@@ -75,7 +75,13 @@ const StyledTextInput = ({icon = null, label, isPassword = false,
         <InputField
             {...props}
             placeholderTextColor={theme.lightGrey}
-            style={{backgroundColor: isFocused ? theme.secondary : theme.primary, height: overrideHeight, fontSize: overrideFontSize, ...props?.style}}
+            style={{
+                backgroundColor: isFocused ? theme.inputFocusedBackground : theme.inputBackground,
+                borderColor: isFocused ? theme.accent : theme.inputBorder,
+                height: overrideHeight,
+                fontSize: overrideFontSize,
+                ...props?.style
+            }}
             onBlur={customOnBlur}
             onFocus={customOnFocus}
             secureTextEntry={isPassword && hidePassword}

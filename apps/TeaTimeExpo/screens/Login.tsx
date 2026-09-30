@@ -121,7 +121,7 @@ const Login = ({navigation, route}) => {
                     resizeMode="contain"
                 />
                 <HeaderTitle>Welcome back</HeaderTitle>
-                <HeaderSubtitle>Join your local Tea Time conversation.</HeaderSubtitle>
+                <HeaderSubtitle>Share the tea.</HeaderSubtitle>
             </LoginHeader>
 
             <FormSurface>

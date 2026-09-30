@@ -7,7 +7,7 @@ import styled from 'styled-components/native'
 import SmallText from '../Texts/SmallText';
 
 const InputField = styled.TextInput`
-    background-color: ${(props) => props.theme.primary};
+    background-color: ${(props) => props.theme.inputBackground};
     padding: 10px;
     padding-left: 50px;
     padding-right: 55px;
@@ -17,7 +17,7 @@ const InputField = styled.TextInput`
     margin-top: 3px;
     margin-bottom: 10px;
     color: ${(props) => props.theme.tertiary};
-    border-color: ${(props) => props.theme.secondary};
+    border-color: ${(props) => props.theme.inputBorder};
     border-width: 2px;
     `;
 
@@ -27,23 +27,23 @@ const LeftIcon = styled.View`
     left: 5px;
     z-index: 1;
     border-right-width: 2px;
-    border-color: ${(props) => props.theme.secondary};
+    border-color: ${(props) => props.theme.inputBorder};
     padding-right: 4px;
 `;
 
 
 const SmallStyledTextInput = ({icon = null, label, ...props}) => {
     const theme = useTheme() as ThemeType;
-    const [inputBackgroundColor, setInputBackgroundColor] = useState(theme.primary);
+    const [isFocused, setIsFocused] = useState(false);
 
-    const customOnBlur = () => {
-        props?.Onblur;
-        setInputBackgroundColor(theme.primary);
+    const customOnBlur = (event) => {
+        setIsFocused(false);
+        props?.onBlur?.(event);
     }
 
-    const customOnFocus = () => {
-        props?.onFocus;
-        setInputBackgroundColor(theme.secondary);
+    const customOnFocus = (event) => {
+        setIsFocused(true);
+        props?.onFocus?.(event);
     }
 
     return (<View>
@@ -57,7 +57,11 @@ const SmallStyledTextInput = ({icon = null, label, ...props}) => {
         <InputField
             {...props}
             placeholderTextColor={theme.lightGrey}
-            style={{backgroundColor: inputBackgroundColor, ...props?.style}}
+            style={{
+                backgroundColor: isFocused ? theme.inputFocusedBackground : theme.inputBackground,
+                borderColor: isFocused ? theme.accent : theme.inputBorder,
+                ...props?.style
+            }}
             onBlur={customOnBlur}
             onFocus={customOnFocus}
         />
