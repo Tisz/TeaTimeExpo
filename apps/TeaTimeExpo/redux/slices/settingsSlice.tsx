@@ -6,7 +6,7 @@ interface SettingState {
 }
 
 const initialState: SettingState = {
-  isDarkMode: false,
+  isDarkMode: true,
 };
 
 const settingSlice = createSlice({

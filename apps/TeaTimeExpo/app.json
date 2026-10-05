@@ -1,6 +1,6 @@
 {
   "expo": {
-    "name": "TeaTimeExpo",
+    "name": "Tea Time",
     "slug": "TeaTimeExpo",
     "version": "1.0.0",
     "orientation": "portrait",
@@ -12,15 +12,16 @@
     "splash": {
       "image": "./assets/splash.png",
       "resizeMode": "contain",
-      "backgroundColor": "#ffffff"
+      "backgroundColor": "#222831"
     },
     "ios": {
       "supportsTablet": false
     },
     "android": {
+      "package": "com.ricecake.teatime",
       "adaptiveIcon": {
         "foregroundImage": "./assets/adaptive-icon.png",
-        "backgroundColor": "#ffffff"
+        "backgroundColor": "#222831"
       }
     },
     "web": {
@@ -42,7 +43,10 @@
       "cognitoUserPoolClientId": "3k7m534msd10a7cjmlbsc3caf9",
       "locationApiBaseUrl": "https://pugcsdmf47.execute-api.ap-southeast-2.amazonaws.com/Prod",
       "chatApiBaseUrl": "https://pugcsdmf47.execute-api.ap-southeast-2.amazonaws.com/Stage",
-      "webSocketBaseUrl": "wss://kv64fohoj8.execute-api.ap-southeast-2.amazonaws.com/Prod"
+      "webSocketBaseUrl": "wss://kv64fohoj8.execute-api.ap-southeast-2.amazonaws.com/Prod",
+      "eas": {
+        "projectId": "629b6cfc-9175-42e0-a46d-2f69bd637848"
+      }
     }
   }
 }

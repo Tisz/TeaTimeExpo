@@ -75,7 +75,7 @@ export function AppNav() {
           >
             {authState.token == "" ? (             // No token found, user isn't signed in
                 <>
-                  <Stack.Screen name="Login" component={Login}/>
+                  <Stack.Screen name="Login" component={Login} options={{headerShown: false}}/>
                   <Stack.Screen name="Signup" component={Signup} options={{headerTitle: 'Sign Up'}}/>
                   <Stack.Screen name="EmailVerification" component={EmailVerification} options={{headerTitle: 'Email Verification'}}/>
                   <Stack.Screen name="ForgotPassword" component={ForgotPassword} options={{headerTitle: 'Forgot Password'}}/>

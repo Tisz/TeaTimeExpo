@@ -1,0 +1,46 @@
+{
+  "cli": {
+    "version": ">= 24.10.0",
+    "appVersionSource": "remote"
+  },
+  "build": {
+    "development": {
+      "developmentClient": true,
+      "distribution": "internal",
+      "env": {
+        "EXPO_PUBLIC_COGNITO_REGION": "ap-southeast-2",
+        "EXPO_PUBLIC_COGNITO_USER_POOL_ID": "ap-southeast-2_7xMoJ8i4B",
+        "EXPO_PUBLIC_COGNITO_USER_POOL_CLIENT_ID": "3k7m534msd10a7cjmlbsc3caf9",
+        "EXPO_PUBLIC_LOCATION_API_BASE_URL": "https://pugcsdmf47.execute-api.ap-southeast-2.amazonaws.com/Prod",
+        "EXPO_PUBLIC_CHAT_API_BASE_URL": "https://pugcsdmf47.execute-api.ap-southeast-2.amazonaws.com/Stage",
+        "EXPO_PUBLIC_WEB_SOCKET_BASE_URL": "wss://kv64fohoj8.execute-api.ap-southeast-2.amazonaws.com/Prod"
+      }
+    },
+    "preview": {
+      "distribution": "internal",
+      "android": { "buildType": "apk" },
+      "env": {
+        "EXPO_PUBLIC_COGNITO_REGION": "ap-southeast-2",
+        "EXPO_PUBLIC_COGNITO_USER_POOL_ID": "ap-southeast-2_7xMoJ8i4B",
+        "EXPO_PUBLIC_COGNITO_USER_POOL_CLIENT_ID": "3k7m534msd10a7cjmlbsc3caf9",
+        "EXPO_PUBLIC_LOCATION_API_BASE_URL": "https://pugcsdmf47.execute-api.ap-southeast-2.amazonaws.com/Prod",
+        "EXPO_PUBLIC_CHAT_API_BASE_URL": "https://pugcsdmf47.execute-api.ap-southeast-2.amazonaws.com/Stage",
+        "EXPO_PUBLIC_WEB_SOCKET_BASE_URL": "wss://kv64fohoj8.execute-api.ap-southeast-2.amazonaws.com/Prod"
+      }
+    },
+    "production": {
+      "autoIncrement": true,
+      "env": {
+        "EXPO_PUBLIC_COGNITO_REGION": "ap-southeast-2",
+        "EXPO_PUBLIC_COGNITO_USER_POOL_ID": "ap-southeast-2_7xMoJ8i4B",
+        "EXPO_PUBLIC_COGNITO_USER_POOL_CLIENT_ID": "3k7m534msd10a7cjmlbsc3caf9",
+        "EXPO_PUBLIC_LOCATION_API_BASE_URL": "https://pugcsdmf47.execute-api.ap-southeast-2.amazonaws.com/Prod",
+        "EXPO_PUBLIC_CHAT_API_BASE_URL": "https://pugcsdmf47.execute-api.ap-southeast-2.amazonaws.com/Stage",
+        "EXPO_PUBLIC_WEB_SOCKET_BASE_URL": "wss://kv64fohoj8.execute-api.ap-southeast-2.amazonaws.com/Prod"
+      }
+    }
+  },
+  "submit": {
+    "production": {}
+  }
+}

@@ -2,6 +2,7 @@ import React, {useState, useContext} from 'react';
 import { Formik } from 'formik';
 import { ActivityIndicator, Image } from 'react-native'
 import styled from 'styled-components/native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { useTheme } from 'styled-components/native';
 import { ThemeType } from '../components/Colors/Colors';
@@ -77,6 +78,7 @@ const SignupPrompt = styled.View`
 
 const Login = ({navigation, route}) => {
     const theme = useTheme() as ThemeType;
+    const insets = useSafeAreaInsets();
     const [message, setMessage] = useState('');
     const [isSuccessMessage, setIsSuccessMessage] = useState(false);
     const { authState, setAuthState } = useContext(AuthContext);
@@ -122,7 +124,7 @@ const Login = ({navigation, route}) => {
 
     return <MainContainer style={{padding: 0}}>
         <KeyboardAvoidingContainer>
-            <LoginHeader>
+            <LoginHeader style={{paddingTop: 42 + insets.top}}>
                 <Image
                     source={require('../assets/Tea_Logo.png')}
                     style={{width: 190, height: 70}}
