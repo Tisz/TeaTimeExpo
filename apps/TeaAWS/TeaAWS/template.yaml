@@ -17,6 +17,13 @@ Parameters:
     MaxLength: 50
     AllowedPattern: "^[A-Za-z_]+$"
 
+  AnnouncementsTableName:
+    Type: String
+    Default: TeaAnnouncements
+    MinLength: 3
+    MaxLength: 50
+    AllowedPattern: "^[A-Za-z_]+$"
+
   CognitoUserPoolId:
     Type: String
     Description: Cognito user pool id used to validate websocket id tokens.
@@ -95,6 +102,33 @@ Resources:
       KeySchema:
         - AttributeName: userId
           KeyType: HASH
+
+  AnnouncementsTable:
+    Type: AWS::DynamoDB::Table
+    DeletionPolicy: Retain
+    UpdateReplacePolicy: Retain
+    Properties:
+      TableName: !Ref AnnouncementsTableName
+      BillingMode: PAY_PER_REQUEST
+      AttributeDefinitions:
+        - AttributeName: announcementId
+          AttributeType: S
+        - AttributeName: GSI1PK
+          AttributeType: S
+        - AttributeName: GSI1SK
+          AttributeType: S
+      KeySchema:
+        - AttributeName: announcementId
+          KeyType: HASH
+      GlobalSecondaryIndexes:
+        - IndexName: PublishedAnnouncementsIndex
+          KeySchema:
+            - AttributeName: GSI1PK
+              KeyType: HASH
+            - AttributeName: GSI1SK
+              KeyType: RANGE
+          Projection:
+            ProjectionType: ALL
 
   AvatarBucket:
     Type: AWS::S3::Bucket
@@ -349,6 +383,36 @@ Resources:
             Path: /profile
             Method: get
 
+  GetAnnouncementsFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      Handler: TeaAWS::TeaAWS.Functions::GetAnnouncementsHandler
+      Runtime: dotnet10
+      MemorySize: 512
+      Timeout: 30
+      Policies:
+        - Statement:
+            Effect: Allow
+            Action:
+              - dynamodb:Query
+            Resource:
+              - !GetAtt AnnouncementsTable.Arn
+              - !Sub ${AnnouncementsTable.Arn}/index/PublishedAnnouncementsIndex
+      Environment:
+        Variables:
+          CHAT_TABLE: !Ref ChatTableName
+          PROFILE_TABLE: !Ref ProfilesTableName
+          ANNOUNCEMENTS_TABLE: !Ref AnnouncementsTableName
+          COGNITO_USER_POOL_ID: !Ref CognitoUserPoolId
+          COGNITO_REGION: !Ref CognitoRegion
+          COGNITO_CLIENT_ID: !Ref CognitoClientId
+      Events:
+        Announcements:
+          Type: Api
+          Properties:
+            Path: /announcements
+            Method: get
+
   UpdateProfileFunction:
     Type: AWS::Serverless::Function
     Properties:
@@ -375,6 +439,40 @@ Resources:
           Properties:
             Path: /profile
             Method: put
+
+  DeleteProfileFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      Handler: TeaAWS::TeaAWS.Functions::DeleteProfileHandler
+      Runtime: dotnet10
+      MemorySize: 512
+      Timeout: 30
+      Policies:
+        - Statement:
+            Effect: Allow
+            Action:
+              - dynamodb:GetItem
+              - dynamodb:DeleteItem
+            Resource: !GetAtt ProfilesTable.Arn
+        - Statement:
+            Effect: Allow
+            Action:
+              - s3:DeleteObject
+            Resource: !Sub ${AvatarBucket.Arn}/profiles/*
+      Environment:
+        Variables:
+          CHAT_TABLE: !Ref ChatTableName
+          PROFILE_TABLE: !Ref ProfilesTableName
+          AVATAR_BUCKET: !Ref AvatarBucket
+          COGNITO_USER_POOL_ID: !Ref CognitoUserPoolId
+          COGNITO_REGION: !Ref CognitoRegion
+          COGNITO_CLIENT_ID: !Ref CognitoClientId
+      Events:
+        Profile:
+          Type: Api
+          Properties:
+            Path: /profile
+            Method: delete
 
   AvatarUploadUrlFunction:
     Type: AWS::Serverless::Function

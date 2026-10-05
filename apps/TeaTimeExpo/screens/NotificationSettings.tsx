@@ -1,5 +1,6 @@
 import React, {useCallback, useEffect, useState} from 'react';
 import * as ImagePicker from 'expo-image-picker';
+import * as FileSystem from 'expo-file-system/legacy';
 import MainContainer from '../components/Containers/MainContainer';
 import BigText from '../components/Texts/BigText';
 import BoolSettingsCard from '../components/Cards/BoolSettingsCard'
@@ -49,19 +50,6 @@ const getRequestErrorMessage = (error: unknown, fallback: string): string => {
     }
 
     return fallback;
-};
-
-const getS3UploadError = async (response: Response): Promise<Error> => {
-    const responseBody = await response.text();
-    const errorCode = responseBody.match(/<Code>([^<]+)<\/Code>/)?.[1];
-    const requestId = response.headers.get('x-amz-request-id');
-    const details = [
-        errorCode ? `S3 error: ${errorCode}` : null,
-        `HTTP ${response.status}`,
-        requestId ? `request ID: ${requestId}` : null,
-    ].filter(Boolean).join(', ');
-
-    return new Error(`The image upload was rejected (${details}).`);
 };
 
 const SettingsHeader = styled.View`
@@ -260,16 +248,22 @@ const NotificationSettings = () => {
                 contentType: asset.mimeType,
                 contentLength: asset.fileSize,
             }).unwrap();
-            const fileResponse = await fetch(asset.uri);
-            const imageData = await fileResponse.blob();
-            const uploadResponse = await fetch(upload.uploadUrl, {
-                method: 'PUT',
+            const uploadResponse = await FileSystem.uploadAsync(upload.uploadUrl, asset.uri, {
+                httpMethod: 'PUT',
+                uploadType: FileSystem.FileSystemUploadType.BINARY_CONTENT,
                 headers: { 'Content-Type': asset.mimeType },
-                body: imageData,
             });
 
-            if (!uploadResponse.ok) {
-                throw await getS3UploadError(uploadResponse);
+            if (uploadResponse.status < 200 || uploadResponse.status >= 300) {
+                const errorCode = uploadResponse.body.match(/<Code>([^<]+)<\/Code>/)?.[1];
+                const requestId = uploadResponse.headers['x-amz-request-id'];
+                const details = [
+                    errorCode ? `S3 error: ${errorCode}` : null,
+                    `HTTP ${uploadResponse.status}`,
+                    requestId ? `request ID: ${requestId}` : null,
+                ].filter(Boolean).join(', ');
+
+                throw new Error(`The image upload was rejected (${details}).`);
             }
 
             await completeAvatarUpload({ objectKey: upload.objectKey }).unwrap();

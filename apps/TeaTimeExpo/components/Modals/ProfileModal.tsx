@@ -21,7 +21,7 @@ const StyledView = styled.View`
 
 import { ModalView, ModalPressableContainer } from './MessageModal'
 
-const ProfileModal = ({modalVisibile, buttonHandler, hideModal, headerText, loggingOut}) => {
+const ProfileModal = ({modalVisibile, buttonHandler, deleteAccountHandler, hideModal, headerText, loggingOut, deletingAccount}) => {
     const theme = useTheme() as ThemeType;
 
     return <Modal animationType='slide' visible={modalVisibile} transparent={true}>
@@ -36,8 +36,16 @@ const ProfileModal = ({modalVisibile, buttonHandler, hideModal, headerText, logg
                 </StyledView>
                 <BigText style={{fontSize: 25, color: theme.tertiary, marginVertical: 20, textAlign: "center"}}>{headerText}</BigText>
 
-                {!loggingOut && <RegularButton onPress={buttonHandler}>{'Logout'}</RegularButton>}
-                {loggingOut && <RegularButton disabled={true}>
+                {!loggingOut && !deletingAccount && <>
+                    <RegularButton onPress={buttonHandler}>{'Logout'}</RegularButton>
+                    <RegularButton
+                        onPress={deleteAccountHandler}
+                        style={{marginTop: 15, backgroundColor: theme.fail}}
+                    >
+                        Delete account
+                    </RegularButton>
+                </>}
+                {(loggingOut || deletingAccount) && <RegularButton disabled={true}>
                     <ActivityIndicator size="small" color={theme.primary}/>
                 </RegularButton>}
 

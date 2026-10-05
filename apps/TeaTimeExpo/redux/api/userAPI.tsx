@@ -1,5 +1,5 @@
 import AsyncStorage from "@react-native-async-storage/async-storage";
-import { confirmResetPassword, confirmSignUp, fetchAuthSession, resendSignUpCode, resetPassword, signIn, signOut, signUp } from "aws-amplify/auth";
+import { confirmResetPassword, confirmSignUp, deleteUser, fetchAuthSession, resendSignUpCode, resetPassword, signIn, signOut, signUp } from "aws-amplify/auth";
 
 const STORAGE_KEY = "authToken";
 const ACCESS_TOKEN_STORAGE_KEY = "authAccessToken";
@@ -14,8 +14,6 @@ interface LoginPayload {
 interface SignupPayload {
   email: string;
   password: string;
-  firstName?: string;
-  lastName?: string;
 }
 
 interface ConfirmSignupPayload {
@@ -312,7 +310,7 @@ export class UserAPI {
     }
   }
 
-  static async signup({ email, password, firstName, lastName }: SignupPayload): Promise<void> {
+  static async signup({ email, password }: SignupPayload): Promise<void> {
     await this.ensureConfigured();
 
     const trimmedEmail = email.trim().toLowerCase();
@@ -322,8 +320,6 @@ export class UserAPI {
       options: {
         userAttributes: {
           email: trimmedEmail,
-          given_name: firstName?.trim() ?? "",
-          family_name: lastName?.trim() ?? "",
         },
       },
     });
@@ -372,6 +368,12 @@ export class UserAPI {
     } finally {
       await this.clearStoredToken();
     }
+  }
+
+  static async deleteAccount(): Promise<void> {
+    await this.ensureConfigured();
+    await deleteUser();
+    await this.clearStoredToken();
   }
 
   /**

@@ -1,5 +1,5 @@
 import React, {useContext, useState} from 'react';
-import { Image } from 'react-native';
+import { Alert, Image } from 'react-native';
 
 import {MaterialCommunityIcons} from '@expo/vector-icons';
 import { useTheme } from 'styled-components/native';
@@ -8,7 +8,8 @@ import styled from 'styled-components/native'
 import ProfileModal from '../Modals/ProfileModal';
 import { AuthContext } from '../../context/AuthContext';
 import { UserAPI } from '../../redux/api/userAPI';
-import { useGetProfileQuery } from '../../redux/api/profileAPI';
+import { useDeleteProfileMutation, useGetProfileQuery } from '../../redux/api/profileAPI';
+import { logError } from '../../utils/errorLogger';
 
 const StyledView = styled.TouchableOpacity`
     background-color: ${(props) => props.theme.primary};
@@ -35,6 +36,7 @@ const AvatarButton = (props) => {
     const { authState, setAuthState } = useContext(AuthContext);
 
     const [loggingOut, setLoggingOut] = useState(false);
+    const [deleteProfile, { isLoading: deletingAccount }] = useDeleteProfileMutation();
     const { data: profile } = useGetProfileQuery();
 
     const theme = useTheme() as ThemeType;
@@ -57,6 +59,47 @@ const AvatarButton = (props) => {
         }
     }
 
+    const deleteAccount = async () => {
+        try {
+            await deleteProfile().unwrap();
+            await UserAPI.deleteAccount();
+            setAuthState({
+                id: "",
+                token: "",
+                signedIn: false,
+            });
+            setModalVisibile(false);
+        }
+        catch (error) {
+            const message = error instanceof Error && error.message
+                ? error.message
+                : 'Your account could not be deleted. Please try again.';
+            Alert.alert('Could not delete account', message);
+        }
+    }
+
+    const confirmAccountDeletion = () => {
+        Alert.alert(
+            'Delete account?',
+            'Your profile and photo will be permanently deleted. This cannot be undone.',
+            [
+                { text: 'Cancel', style: 'cancel' },
+                {
+                    text: 'Continue',
+                    style: 'destructive',
+                    onPress: () => Alert.alert(
+                        'Final confirmation',
+                        'Delete your Tea Time account permanently?',
+                        [
+                            { text: 'Cancel', style: 'cancel' },
+                            { text: 'Delete account', style: 'destructive', onPress: deleteAccount },
+                        ],
+                    ),
+                },
+            ],
+        );
+    }
+
     const hideModal = async () => {
         setModalVisibile(false);
     }
@@ -70,12 +113,17 @@ const AvatarButton = (props) => {
         showProfileModal(profile?.username ?? "Profile");
     }
 
+    const handleAvatarError = (error) => {
+        logError('AvatarButton', 'load avatar', error.nativeEvent?.error ?? error, {
+            avatarPath: profile?.avatarUrl?.split('?')[0],
+        });
+    }
 
     return (
         <>
         <StyledView onPress={onAvatarPress} style={props.imgContainerStyle}>
             {profile?.avatarUrl
-                ? <AvatarImage source={{ uri: profile.avatarUrl }} accessibilityLabel="Profile photo" />
+                ? <AvatarImage source={{ uri: profile.avatarUrl }} accessibilityLabel="Profile photo" onError={handleAvatarError} />
                 : <MaterialCommunityIcons name="account" size={35} color={theme.accent}/>
             }
         </StyledView>
@@ -83,8 +131,10 @@ const AvatarButton = (props) => {
             modalVisibile={modalVisibile} 
             headerText={modalHeaderText} 
             buttonHandler={onLogout} 
+            deleteAccountHandler={confirmAccountDeletion}
             hideModal={hideModal}
-            loggingOut={loggingOut}/>
+            loggingOut={loggingOut}
+            deletingAccount={deletingAccount}/>
         </>
     )
 }

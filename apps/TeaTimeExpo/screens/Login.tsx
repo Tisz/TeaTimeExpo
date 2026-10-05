@@ -14,6 +14,7 @@ import MessageBox from '../components/Texts/MessageBox';
 import RegularButton from '../components/Buttons/RegularButton';
 import PressableText from '../components/Texts/PressableText';
 import { UserAPI } from '../redux/api/userAPI';
+import { useUpdateProfileMutation } from '../redux/api/profileAPI';
 
 
 //context
@@ -79,6 +80,9 @@ const Login = ({navigation, route}) => {
     const [message, setMessage] = useState('');
     const [isSuccessMessage, setIsSuccessMessage] = useState(false);
     const { authState, setAuthState } = useContext(AuthContext);
+    const [updateProfile] = useUpdateProfileMutation();
+    const pendingUsername = route?.params?.pendingUsername?.trim();
+    const initialEmail = route?.params?.email?.trim().toLowerCase() ?? '';
 
     const moveTo = (screen, payload = null) => {
         navigation.navigate(screen, {...payload});
@@ -93,6 +97,10 @@ const Login = ({navigation, route}) => {
                 email: credentials.email,
                 password: credentials.password,
             });
+
+            if (pendingUsername) {
+                await updateProfile({username: pendingUsername}).unwrap();
+            }
 
             setIsSuccessMessage(true);
             setMessage("Success! Loading dashboard");
@@ -127,7 +135,7 @@ const Login = ({navigation, route}) => {
             <FormSurface>
                 <FormTitle>Sign in</FormTitle>
                 <FormSubtitle>Enter your account details to continue.</FormSubtitle>
-                <Formik initialValues={{email: '', password: ''}}
+                <Formik enableReinitialize initialValues={{email: initialEmail, password: ''}}
                     onSubmit={(values, {setSubmitting}) => {
                         if (values.email == "" || values.password == ""){
                             setMessage("Please enter all fields");

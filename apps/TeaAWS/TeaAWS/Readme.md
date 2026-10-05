@@ -80,3 +80,18 @@ Deploy application
     cd "TeaAWS/src/TeaAWS"
     dotnet lambda deploy-serverless
 ```
+
+## Publishing announcements
+
+The `TeaAnnouncements` DynamoDB table is read by the authenticated `GET /announcements` endpoint. To publish an announcement, add an item in the AWS console with these string attributes:
+
+| Attribute | Value |
+| --- | --- |
+| `announcementId` | A unique ID, such as a UUID |
+| `title` | Short announcement heading |
+| `text` | Announcement body |
+| `publishedAt` | ISO 8601 UTC timestamp, such as `2026-10-05T02:00:00Z` |
+| `GSI1PK` | `PUBLISHED` |
+| `GSI1SK` | The same timestamp followed by `#` and the unique ID |
+
+Only items with the published index keys are returned. To unpublish an item, remove its `GSI1PK` and `GSI1SK` attributes. Optionally set `expiresAt` to an ISO 8601 UTC timestamp to stop returning the announcement after that time. The app loads announcements when the signed-in header opens and refreshes the list whenever the announcement icon is tapped.

@@ -22,7 +22,8 @@ public class FunctionsTest
         Mock<IJwtTokenValidator> validator,
         bool persistMessageHistory = true,
         ILocalityResolver? localityResolver = null,
-        string profileTable = ProfileTableName)
+        string profileTable = ProfileTableName,
+        string? announcementsTable = null)
     {
         return new Functions(
             ddb.Object,
@@ -32,7 +33,8 @@ public class FunctionsTest
             connectionTtlSeconds: 900,
             persistMessageHistory: persistMessageHistory,
             localityResolver: localityResolver,
-            profileTable: profileTable);
+            profileTable: profileTable,
+            announcementsTable: announcementsTable);
     }
 
     [Fact]
@@ -570,5 +572,92 @@ public class FunctionsTest
         Assert.Equal(200, response.StatusCode);
         mockApiGatewayClient.Verify(c => c.PostToConnectionAsync(It.IsAny<PostToConnectionRequest>(), It.IsAny<CancellationToken>()), Times.Exactly(2));
         mockDdbClient.Verify(c => c.DeleteItemAsync(It.IsAny<DeleteItemRequest>(), It.IsAny<CancellationToken>()), Times.Once);
+        mockDdbClient.Verify(c => c.UpdateItemAsync(
+            It.Is<UpdateItemRequest>(update =>
+                update.TableName == ProfileTableName &&
+                update.Key[Functions.UserIdField].S == "user-1" &&
+                update.UpdateExpression == "ADD #messageCount :one SET #lastChatRoomId = :roomId, #lastMessageAt = :sentAt" &&
+                update.ExpressionAttributeValues[":one"].N == "1" &&
+                update.ExpressionAttributeValues[":roomId"].S == "AU#NSW#SYDNEY"),
+            It.IsAny<CancellationToken>()), Times.Once);
+    }
+
+    [Fact]
+    public async Task GetAnnouncements_ReturnsPublishedAnnouncementsNewestFirst()
+    {
+        var mockDdbClient = new Mock<IAmazonDynamoDB>();
+        var validator = new Mock<IJwtTokenValidator>();
+        validator
+            .Setup(v => v.ValidateAsync(It.IsAny<string>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new TokenValidationResult(true, "user-1", null));
+
+        mockDdbClient
+            .Setup(client => client.QueryAsync(It.IsAny<QueryRequest>(), It.IsAny<CancellationToken>()))
+            .Callback<QueryRequest, CancellationToken>((query, _) =>
+            {
+                Assert.Equal("announcementtable", query.TableName);
+                Assert.Equal("PublishedAnnouncementsIndex", query.IndexName);
+                Assert.Equal("GSI1PK = :published", query.KeyConditionExpression);
+                Assert.Equal("PUBLISHED", query.ExpressionAttributeValues[":published"].S);
+                Assert.False(query.ScanIndexForward);
+                Assert.Contains("#expiresAt > :now", query.FilterExpression);
+            })
+            .ReturnsAsync(new QueryResponse
+            {
+                Items =
+                [
+                    new()
+                    {
+                        ["announcementId"] = new AttributeValue { S = "newer" },
+                        ["title"] = new AttributeValue { S = "New announcement" },
+                        ["text"] = new AttributeValue { S = "Latest news" },
+                        ["publishedAt"] = new AttributeValue { S = "2026-10-05T12:00:00Z" }
+                    },
+                    new()
+                    {
+                        ["announcementId"] = new AttributeValue { S = "older" },
+                        ["title"] = new AttributeValue { S = "Earlier announcement" },
+                        ["text"] = new AttributeValue { S = "Earlier news" },
+                        ["publishedAt"] = new AttributeValue { S = "2026-10-04T12:00:00Z" }
+                    }
+                ]
+            });
+
+        var functions = BuildFunctions(
+            mockDdbClient,
+            new Mock<IAmazonApiGatewayManagementApi>(),
+            validator,
+            announcementsTable: "announcementtable");
+
+        var response = await functions.GetAnnouncementsHandler(new APIGatewayProxyRequest
+        {
+            Headers = new Dictionary<string, string> { ["Authorization"] = "******" }
+        }, new TestLambdaContext());
+
+        Assert.Equal(200, response.StatusCode);
+        Assert.Contains("\"id\":\"newer\"", response.Body);
+        Assert.Contains("\"title\":\"New announcement\"", response.Body);
+        Assert.True(response.Body.IndexOf("newer", StringComparison.Ordinal) < response.Body.IndexOf("older", StringComparison.Ordinal));
+        mockDdbClient.Verify(
+            client => client.QueryAsync(It.IsAny<QueryRequest>(), It.IsAny<CancellationToken>()),
+            Times.Once);
+    }
+
+    [Fact]
+    public async Task GetAnnouncements_RejectsMissingToken()
+    {
+        var mockDdbClient = new Mock<IAmazonDynamoDB>();
+        var functions = BuildFunctions(
+            mockDdbClient,
+            new Mock<IAmazonApiGatewayManagementApi>(),
+            new Mock<IJwtTokenValidator>(),
+            announcementsTable: "announcementtable");
+
+        var response = await functions.GetAnnouncementsHandler(new APIGatewayProxyRequest(), new TestLambdaContext());
+
+        Assert.Equal(401, response.StatusCode);
+        mockDdbClient.Verify(
+            client => client.QueryAsync(It.IsAny<QueryRequest>(), It.IsAny<CancellationToken>()),
+            Times.Never);
     }
 }

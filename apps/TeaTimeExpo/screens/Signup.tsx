@@ -33,14 +33,15 @@ const Signup = ({navigation}) => {
             await UserAPI.signup({
                 email: credentials.email,
                 password: credentials.password,
-                firstName: credentials.firstName,
-                lastName: credentials.lastName,
             });
 
             setIsSuccessMessage(true);
             setMessage('Verification code sent. Check your email.');
 
-            moveTo('EmailVerification', { email: credentials.email.trim().toLowerCase() });
+            moveTo('EmailVerification', {
+                email: credentials.email.trim().toLowerCase(),
+                username: credentials.username.trim(),
+            });
 
             setSubmitting(false);
         }
@@ -57,10 +58,15 @@ const Signup = ({navigation}) => {
                 Enter your account details
             </RegularText>
 
-            <Formik initialValues={{firstName: '', lastName: '', email: '', password: '', verifyPassword: ''}}
+            <Formik initialValues={{username: '', email: '', password: '', verifyPassword: ''}}
                 onSubmit={(values, {setSubmitting}) => {
-                    if (values.firstName == "" || values.lastName == "" || values.email == "" || values.password == "" || values.verifyPassword == ""){
+                    const username = values.username.trim();
+                    if (username === "" || values.email.trim() === "" || values.password === "" || values.verifyPassword === ""){
                         setMessage("Please enter all fields");
+                        setSubmitting(false);
+                    }
+                    else if (username.length > 32 || /[\x00-\x1F\x7F]/.test(username)){
+                        setMessage("Username must be between 1 and 32 characters and cannot contain control characters");
                         setSubmitting(false);
                     }
                     else if (values.password != values.verifyPassword){
@@ -74,25 +80,15 @@ const Signup = ({navigation}) => {
                 {({handleChange, handleBlur, handleSubmit, values, isSubmitting}) => (
                     <>
                         <StyledTextInput 
-                            label="First Name" 
+                            label="Username" 
                             icon="account" 
-                            placeholder="Paul" 
-                            keyboardType="email-address"
-                            onChangeText={handleChange('firstName')}
-                            onBlur={handleBlur('firstName')}
-                            value={values.firstName}
-                            isPassword={false}
-                            style={{marginBottom: 15}}
-                        />
-
-                        <StyledTextInput 
-                            label="Last Name" 
-                            icon="account" 
-                            placeholder="Brown" 
-                            keyboardType="email-address"
-                            onChangeText={handleChange('lastName')}
-                            onBlur={handleBlur('lastName')}
-                            value={values.lastName}
+                            placeholder="How people will see you" 
+                            autoCapitalize="none"
+                            autoCorrect={false}
+                            autoComplete="username"
+                            onChangeText={handleChange('username')}
+                            onBlur={handleBlur('username')}
+                            value={values.username}
                             isPassword={false}
                             style={{marginBottom: 15}}
                         />
@@ -102,6 +98,10 @@ const Signup = ({navigation}) => {
                             icon="email-variant" 
                             placeholder="hello@bello.com" 
                             keyboardType="email-address"
+                            autoCapitalize="none"
+                            autoCorrect={false}
+                            textContentType="emailAddress"
+                            autoComplete="email"
                             onChangeText={handleChange('email')}
                             onBlur={handleBlur('email')}
                             value={values.email}
@@ -113,6 +113,8 @@ const Signup = ({navigation}) => {
                             label="Password" 
                             icon="lock-open" 
                             placeholder="* * * * * * * *" 
+                            textContentType="newPassword"
+                            autoComplete="new-password"
                             onChangeText={handleChange('password')}
                             onBlur={handleBlur('password')}
                             value={values.password}
@@ -124,6 +126,8 @@ const Signup = ({navigation}) => {
                             label="Confirm Password" 
                             icon="lock-open" 
                             placeholder="* * * * * * * *" 
+                            textContentType="newPassword"
+                            autoComplete="new-password"
                             onChangeText={handleChange('verifyPassword')}
                             onBlur={handleBlur('verifyPassword')}
                             value={values.verifyPassword}

@@ -14,6 +14,7 @@ import { UserAPI } from "../redux/api/userAPI";
 const EmailVerification = ({ navigation, route }) => {
   const theme = useTheme() as ThemeType;
   const email = route?.params?.email ?? "";
+  const username = route?.params?.username ?? "";
 
   const MAX_CODE_LENGTH = 6;
   const [code, setCode] = useState("");
@@ -37,7 +38,7 @@ const EmailVerification = ({ navigation, route }) => {
 
   const modalButtonHandler = () => {
     if (modalMesagetype == "success") {
-      moveTo("Login");
+      moveTo("Login", { email, pendingUsername: username });
     }
 
     setModalVisibile(false);

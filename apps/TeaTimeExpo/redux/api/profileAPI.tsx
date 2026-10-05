@@ -5,6 +5,9 @@ import { apiResponseHandler, createBaseQueryWithAuth } from './baseQuery';
 export type Profile = {
   username: string | null;
   avatarUrl: string | null;
+  messageCount: number;
+  lastChatRoomId: string | null;
+  lastMessageAt: string | null;
 };
 
 type AvatarUploadUrl = {
@@ -31,6 +34,13 @@ export const profileApi = createApi({
         method: 'PUT',
         body: profile,
         responseHandler: apiResponseHandler,
+      }),
+      invalidatesTags: ['Profile'],
+    }),
+    deleteProfile: builder.mutation<void, void>({
+      query: () => ({
+        url: '/profile',
+        method: 'DELETE',
       }),
       invalidatesTags: ['Profile'],
     }),
@@ -64,6 +74,7 @@ export const profileApi = createApi({
 export const {
   useGetProfileQuery,
   useUpdateProfileMutation,
+  useDeleteProfileMutation,
   useCreateAvatarUploadUrlMutation,
   useCompleteAvatarUploadMutation,
   useDeleteAvatarMutation,

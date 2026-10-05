@@ -1,5 +1,6 @@
 import React, {useState, useEffect, useContext} from 'react';
 import { StatusBar } from 'expo-status-bar';
+import { Image, View } from 'react-native';
 
 import { NavigationContainer } from '@react-navigation/native';
 import { createStackNavigator } from '@react-navigation/stack';
@@ -13,6 +14,7 @@ import ResetPassword from '../screens/ResetPassword';
 import Dashboard from '../screens/Dashboard';
 
 //components
+import AnnouncementsButton from '../components/Buttons/AnnouncementsButton';
 import AvatarButton from '../components/Buttons/AvatarButton';
 import { AuthContext } from '../context/AuthContext';
 import MainStack from './MainStack';
@@ -92,8 +94,23 @@ export function AppNav() {
                           shadowOpacity: 0,
                           elevation: 0
                       },
-                      headerRight: () => <AvatarButton />,
-                      headerTitle: () => <BigText>Tea</BigText>,
+                      headerRight: () => (
+                        <View style={{ alignItems: 'center', flexDirection: 'row' }}>
+                          <AnnouncementsButton />
+                          <AvatarButton />
+                        </View>
+                      ),
+                      headerTitle: () => (
+                        <View style={{ alignItems: 'center', flexDirection: 'row' }}>
+                          <Image
+                            source={require('../assets/Tea_Logo.png')}
+                            style={{ height: 36, marginRight: 8, width: 36 }}
+                            resizeMode="contain"
+                            accessibilityLabel="Tea logo"
+                          />
+                          <BigText style={{ color: theme.white, fontWeight: 'bold' }}>Tea</BigText>
+                        </View>
+                      ),
                     }}/>
                 </>
               )}

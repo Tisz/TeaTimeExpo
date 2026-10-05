@@ -166,6 +166,7 @@ public class Functions
 {
     private const string TableNameEnv = "CHAT_TABLE";
     private const string ProfileTableNameEnv = "PROFILE_TABLE";
+    private const string AnnouncementsTableNameEnv = "ANNOUNCEMENTS_TABLE";
     private const string CognitoUserPoolIdEnv = "COGNITO_USER_POOL_ID";
     private const string CognitoRegionEnv = "COGNITO_REGION";
     private const string CognitoClientIdEnv = "COGNITO_CLIENT_ID";
@@ -174,6 +175,7 @@ public class Functions
     private const string PlaceIndexNameEnv = "PLACE_INDEX_NAME";
     private const string AvatarBucketNameEnv = "AVATAR_BUCKET";
     private const int MessageHistoryLimit = 10;
+    private const int AnnouncementLimit = 50;
     private const int MaxUsernameLength = 32;
     private const long MaxAvatarBytes = 5 * 1024 * 1024;
     private static readonly TimeSpan AvatarUploadUrlLifetime = TimeSpan.FromMinutes(5);
@@ -199,9 +201,13 @@ public class Functions
     public const string ExpiresAtField = "expiresAt";
     public const string UsernameField = "username";
     public const string AvatarKeyField = "avatarKey";
+    public const string MessageCountField = "messageCount";
+    public const string LastChatRoomIdField = "lastChatRoomId";
+    public const string LastMessageAtField = "lastMessageAt";
 
     private readonly string _chatTable;
     private readonly string _profileTable;
+    private readonly string? _announcementsTable;
     private readonly IAmazonDynamoDB _ddbClient;
     private readonly IAmazonS3? _s3Client;
     private readonly string? _avatarBucket;
@@ -223,6 +229,7 @@ public class Functions
             ?? throw new InvalidOperationException($"{TableNameEnv} not set");
         _profileTable = Environment.GetEnvironmentVariable(ProfileTableNameEnv)
             ?? throw new InvalidOperationException($"{ProfileTableNameEnv} not set");
+        _announcementsTable = Environment.GetEnvironmentVariable(AnnouncementsTableNameEnv);
 
         string userPoolId = Environment.GetEnvironmentVariable(CognitoUserPoolIdEnv)
             ?? throw new InvalidOperationException($"{CognitoUserPoolIdEnv} not set");
@@ -268,12 +275,14 @@ public class Functions
         ILocalityResolver? localityResolver = null,
         string? profileTable = null,
         IAmazonS3? s3Client = null,
-        string? avatarBucket = null)
+        string? avatarBucket = null,
+        string? announcementsTable = null)
     {
         _ddbClient = ddbClient;
         _apiGatewayManagementApiClientFactory = apiGatewayManagementApiClientFactory;
         _chatTable = chatTable;
         _profileTable = profileTable ?? chatTable;
+        _announcementsTable = announcementsTable;
         _tokenValidator = tokenValidator;
         _connectionTtlSeconds = connectionTtlSeconds;
         _persistMessageHistory = persistMessageHistory;
@@ -423,6 +432,8 @@ public class Functions
                     }
                 });
             }
+
+            await TrackMessageStatsAsync(senderUserId, roomId, now, context);
 
             var queryRequest = new QueryRequest
             {
@@ -644,8 +655,93 @@ public class Functions
         return JsonResponse(HttpStatusCode.OK, new
         {
             username = GetAttributeString(response.Item, UsernameField),
-            avatarUrl = CreateAvatarReadUrl(GetAttributeString(response.Item, AvatarKeyField))
+            avatarUrl = CreateAvatarReadUrl(GetAttributeString(response.Item, AvatarKeyField)),
+            messageCount = GetAttributeLong(response.Item, MessageCountField),
+            lastChatRoomId = GetAttributeString(response.Item, LastChatRoomIdField),
+            lastMessageAt = GetAttributeString(response.Item, LastMessageAtField)
         });
+    }
+
+    public async Task<APIGatewayProxyResponse> GetAnnouncementsHandler(APIGatewayProxyRequest request, ILambdaContext context)
+    {
+        var validation = await ValidateAuthenticatedRequestAsync(request);
+        if (!validation.IsValid || string.IsNullOrWhiteSpace(validation.UserId))
+        {
+            return Unauthorized();
+        }
+
+        if (string.IsNullOrWhiteSpace(_announcementsTable))
+        {
+            context.Logger.LogInformation("route=getAnnouncements reason=table_not_configured");
+            return ServerError("Announcements are not configured");
+        }
+
+        try
+        {
+            var announcements = new List<Dictionary<string, string>>();
+            Dictionary<string, AttributeValue>? lastEvaluatedKey = null;
+            var now = DateTime.UtcNow.ToString("O");
+
+            do
+            {
+                var query = await _ddbClient.QueryAsync(new QueryRequest
+                {
+                    TableName = _announcementsTable,
+                    IndexName = "PublishedAnnouncementsIndex",
+                    KeyConditionExpression = "GSI1PK = :published",
+                    FilterExpression = "attribute_not_exists(#expiresAt) OR #expiresAt > :now",
+                    ExpressionAttributeNames = new Dictionary<string, string>
+                    {
+                        ["#expiresAt"] = ExpiresAtField
+                    },
+                    ExpressionAttributeValues = new Dictionary<string, AttributeValue>
+                    {
+                        [":published"] = new AttributeValue { S = "PUBLISHED" },
+                        [":now"] = new AttributeValue { S = now }
+                    },
+                    ScanIndexForward = false,
+                    Limit = AnnouncementLimit,
+                    ExclusiveStartKey = lastEvaluatedKey
+                });
+
+                foreach (var item in query.Items)
+                {
+                    var id = GetAttributeString(item, "announcementId");
+                    var title = GetAttributeString(item, "title");
+                    var text = GetAttributeString(item, "text");
+                    var publishedAt = GetAttributeString(item, "publishedAt");
+                    if (id is null || title is null || text is null || publishedAt is null)
+                    {
+                        context.Logger.LogInformation("route=getAnnouncements reason=invalid_announcement_item");
+                        continue;
+                    }
+
+                    announcements.Add(new Dictionary<string, string>
+                    {
+                        ["id"] = id,
+                        ["title"] = title,
+                        ["text"] = text,
+                        ["publishedAt"] = publishedAt
+                    });
+
+                    if (announcements.Count == AnnouncementLimit)
+                    {
+                        break;
+                    }
+                }
+
+                lastEvaluatedKey = query.LastEvaluatedKey;
+            }
+            while (announcements.Count < AnnouncementLimit &&
+                   lastEvaluatedKey is { Count: > 0 });
+
+            return JsonResponse(HttpStatusCode.OK, new { announcements });
+        }
+        catch (Exception exception)
+        {
+            context.Logger.LogInformation($"route=getAnnouncements userId={validation.UserId} reason=query_failed error={exception.Message}");
+            return ServerError("Unable to load announcements");
+        }
     }
 
     public async Task<APIGatewayProxyResponse> UpdateProfileHandler(APIGatewayProxyRequest request, ILambdaContext context)
@@ -704,6 +800,44 @@ public class Functions
         return JsonResponse(HttpStatusCode.OK, new { username });
     }
 
+    public async Task<APIGatewayProxyResponse> DeleteProfileHandler(APIGatewayProxyRequest request, ILambdaContext context)
+    {
+        var validation = await ValidateAuthenticatedRequestAsync(request);
+        if (!validation.IsValid || string.IsNullOrWhiteSpace(validation.UserId))
+        {
+            return Unauthorized();
+        }
+
+        var currentProfile = await _ddbClient.GetItemAsync(new GetItemRequest
+        {
+            TableName = _profileTable,
+            Key = BuildProfileKey(validation.UserId),
+            ProjectionExpression = AvatarKeyField
+        });
+        var avatarKey = GetAttributeString(currentProfile.Item, AvatarKeyField);
+
+        try
+        {
+            await _ddbClient.DeleteItemAsync(new DeleteItemRequest
+            {
+                TableName = _profileTable,
+                Key = BuildProfileKey(validation.UserId)
+            });
+
+            if (IsAvatarStorageConfigured() && IsUsersAvatarKey(validation.UserId, avatarKey))
+            {
+                await _s3Client!.DeleteObjectAsync(_avatarBucket!, avatarKey!);
+            }
+        }
+        catch (Exception exception)
+        {
+            context.Logger.LogInformation($"route=deleteProfile userId={validation.UserId} reason=delete_failed error={exception.Message}");
+            return ServerError("Unable to delete profile");
+        }
+
+        return new APIGatewayProxyResponse { StatusCode = (int)HttpStatusCode.NoContent };
+    }
+
     public async Task<APIGatewayProxyResponse> CreateAvatarUploadUrlHandler(APIGatewayProxyRequest request, ILambdaContext context)
     {
         var validation = await ValidateAuthenticatedRequestAsync(request);
@@ -741,6 +875,7 @@ public class Functions
             BucketName = _avatarBucket,
             Key = key,
             Verb = HttpVerb.PUT,
+            ContentType = upload.ContentType,
             Expires = DateTime.UtcNow.Add(AvatarUploadUrlLifetime)
         });
 
@@ -1218,6 +1353,40 @@ public class Functions
         }
 
         return item.TryGetValue(key, out var value) ? value.S : null;
+    }
+
+    private static long GetAttributeLong(IDictionary<string, AttributeValue>? item, string key) =>
+        item != null && item.TryGetValue(key, out var value) && long.TryParse(value.N, out var result)
+            ? result
+            : 0;
+
+    private async Task TrackMessageStatsAsync(string userId, string roomId, DateTimeOffset sentAt, ILambdaContext context)
+    {
+        try
+        {
+            await _ddbClient.UpdateItemAsync(new UpdateItemRequest
+            {
+                TableName = _profileTable,
+                Key = BuildProfileKey(userId),
+                UpdateExpression = "ADD #messageCount :one SET #lastChatRoomId = :roomId, #lastMessageAt = :sentAt",
+                ExpressionAttributeNames = new Dictionary<string, string>
+                {
+                    ["#messageCount"] = MessageCountField,
+                    ["#lastChatRoomId"] = LastChatRoomIdField,
+                    ["#lastMessageAt"] = LastMessageAtField
+                },
+                ExpressionAttributeValues = new Dictionary<string, AttributeValue>
+                {
+                    [":one"] = new AttributeValue { N = "1" },
+                    [":roomId"] = new AttributeValue { S = roomId },
+                    [":sentAt"] = new AttributeValue { S = sentAt.ToString("O") }
+                }
+            });
+        }
+        catch (Exception exception)
+        {
+            context.Logger.LogInformation($"route=sendMessage userId={userId} reason=stats_update_failed error={exception.Message}");
+        }
     }
 
     private async Task DeleteConnectionRecordAsync(string? connectionId)
