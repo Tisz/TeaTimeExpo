@@ -4,7 +4,7 @@ import styled from 'styled-components/native'
 import { useSelector } from 'react-redux';
 import { RootState } from '../redux/store';
 import React, { useState, useRef } from 'react';
-import { Platform, KeyboardAvoidingView, SafeAreaView, TouchableWithoutFeedback, Keyboard, FlatList, Image } from 'react-native';
+import { ActivityIndicator, Platform, KeyboardAvoidingView, SafeAreaView, TouchableWithoutFeedback, Keyboard, FlatList, Image } from 'react-native';
 import { useSuburbSocket } from '../hooks/useSuburbSocket';
 import { ChatMessage } from '../data/types/ChatMessage';
 import { MaterialCommunityIcons } from '@expo/vector-icons';
@@ -26,7 +26,7 @@ const MessageContainer = styled.View<{ isUser: boolean }>`
 
 const MessageRow = styled.View<{ isUser: boolean }>`
   align-items: flex-end;
-  flex-direction: ${props => (props.isUser ? 'row-reverse' : 'row')};
+  flex-direction: ${props => (props.isUser ? 'row' : 'row-reverse')};
   max-width: 100%;
 `;
 
@@ -51,8 +51,8 @@ const MessageBubble = styled.View<{ isUser: boolean }>`
   background-color: ${props => (props.isUser ? props.theme.darkAccent : props.theme.secondary)};
   padding: 11px 14px 9px;
   border-radius: 16px;
-  border-bottom-right-radius: ${props => (props.isUser ? '5px' : '16px')};
-  border-bottom-left-radius: ${props => (props.isUser ? '16px' : '5px')};
+  border-bottom-left-radius: ${props => (props.isUser ? '5px' : '16px')};
+  border-bottom-right-radius: ${props => (props.isUser ? '16px' : '5px')};
   elevation: 2;
   shadow-color: ${(props) => props.theme.black};
   shadow-offset: 0px 1px;
@@ -70,8 +70,9 @@ const MessageAuthor = styled.Text<{ isUser: boolean }>`
   color: ${(props) => props.theme.lightGrey};
   font-size: 12px;
   margin-bottom: 2px;
-  margin-left: ${(props) => props.isUser ? '0px' : '8px'};
-  text-align: ${(props) => props.isUser ? 'right' : 'left'};
+  margin-left: ${(props) => props.isUser ? '8px' : '0px'};
+  margin-right: ${(props) => props.isUser ? '0px' : '8px'};
+  text-align: ${(props) => props.isUser ? 'left' : 'right'};
 `;
 
 const MessageTimestamp = styled.Text<{ isUser: boolean }>`
@@ -162,6 +163,13 @@ const formatMessageTime = (messageTime: string): string => {
     : parsedTime.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });
 };
 
+const formatMessageDate = (messageTime: string): string => {
+  const parsedTime = new Date(messageTime);
+  return Number.isNaN(parsedTime.getTime())
+    ? ''
+    : parsedTime.toLocaleDateString([], { year: 'numeric', month: 'short', day: 'numeric' });
+};
+
 const Chatroom = () => {
     const theme = useTheme() as ThemeType;
     const messages = useSelector((state: RootState) => state.chat.chatHistory);
@@ -202,6 +210,14 @@ const Chatroom = () => {
                         <StatusHeader>
                           <RoomText>{roomDisplay || activeRoomId || 'Resolving location'}</RoomText>
                           <StatusPill statusColor={statusColor}>
+                            {(socketStatus === 'connecting' || socketStatus === 'reconnecting') && (
+                              <ActivityIndicator
+                                size="small"
+                                color={theme.white}
+                                style={{ marginRight: 5 }}
+                                accessibilityLabel="Connecting to chatroom"
+                              />
+                            )}
                             <StatusPillText>{socketStatus}</StatusPillText>
                           </StatusPill>
                         </StatusHeader>
@@ -225,7 +241,7 @@ const Chatroom = () => {
                                       <MessageText isUser={item.sender === 'user'}>{item.message}</MessageText>
                                       {!!formatMessageTime(item.messageTime) && (
                                         <MessageTimestamp isUser={item.sender === 'user'}>
-                                          {formatMessageTime(item.messageTime)}
+                                          {formatMessageDate(item.messageTime)} · {formatMessageTime(item.messageTime)}
                                         </MessageTimestamp>
                                       )}
                                       </MessageBubble>

@@ -20,6 +20,8 @@ import {
 import { useTheme } from 'styled-components/native';
 import { ThemeType } from '../components/Colors/Colors';
 import { logError } from '../utils/errorLogger';
+import appConfig from '../app.json';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 const getRequestErrorMessage = (error: unknown, fallback: string): string => {
     if (error instanceof Error && error.message) {
@@ -178,9 +180,16 @@ const SecondaryButtonText = styled.Text`
     font-weight: bold;
 `;
 
+const VersionText = styled.Text`
+    color: ${(props) => props.theme.lightGrey};
+    font-size: 11px;
+    padding: 8px 0;
+    text-align: center;
+`;
 
 const NotificationSettings = () => {
     const theme = useTheme() as ThemeType;
+    const insets = useSafeAreaInsets();
     const isDarkTheme = useSelector((state: RootState) => state.setting.isDarkMode);
     const appDispatch = useDispatch<AppDispatch>();
 
@@ -352,6 +361,7 @@ const NotificationSettings = () => {
 
             </SettingsContent>
         </ScrollView>
+        <VersionText style={{marginBottom: insets.bottom}}>Version {appConfig.expo.version}</VersionText>
     </MainContainer>
 }
 

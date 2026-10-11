@@ -6,6 +6,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { useTheme } from 'styled-components/native';
 import { ThemeType } from '../components/Colors/Colors';
+import appConfig from '../app.json';
 //custom components
 import MainContainer from '../components/Containers/MainContainer';
 import KeyboardAvoidingContainer from '../components/Containers/KeyboardAvoidingContainer';
@@ -24,8 +25,20 @@ import { AuthContext} from '../context/AuthContext';
 const LoginHeader = styled.View`
     align-items: center;
     background-color: ${(props) => props.theme.darkGrey};
+    border-bottom-left-radius: 32px;
+    border-bottom-right-radius: 32px;
     min-height: 220px;
     padding: 42px 25px 34px;
+`;
+
+const HeaderCurve = styled.View`
+    background-color: ${(props) => props.theme.darkGrey};
+    border-radius: 50px;
+    bottom: -20px;
+    height: 40px;
+    left: -8%;
+    position: absolute;
+    width: 116%;
 `;
 
 const HeaderTitle = styled.Text`
@@ -41,6 +54,14 @@ const HeaderSubtitle = styled.Text`
     margin-top: 6px;
     opacity: 0.85;
     text-align: center;
+`;
+
+const HeaderAccent = styled.View`
+    background-color: ${(props) => props.theme.accent};
+    border-radius: 2px;
+    height: 4px;
+    margin-top: 12px;
+    width: 40px;
 `;
 
 const FormSurface = styled.View`
@@ -74,6 +95,13 @@ const SignupPrompt = styled.View`
     flex-direction: row;
     justify-content: center;
     margin-top: 20px;
+`;
+
+const VersionText = styled.Text`
+    color: ${(props) => props.theme.lightGrey};
+    font-size: 11px;
+    padding: 8px 0;
+    text-align: center;
 `;
 
 const Login = ({navigation, route}) => {
@@ -132,6 +160,8 @@ const Login = ({navigation, route}) => {
                 />
                 <HeaderTitle>Welcome back</HeaderTitle>
                 <HeaderSubtitle>Share the tea.</HeaderSubtitle>
+                <HeaderAccent />
+                <HeaderCurve />
             </LoginHeader>
 
             <FormSurface>
@@ -198,6 +228,7 @@ const Login = ({navigation, route}) => {
             </FormSurface>
 
         </KeyboardAvoidingContainer>
+        <VersionText style={{marginBottom: insets.bottom}}>Version {appConfig.expo.version}</VersionText>
     </MainContainer>
 }
 

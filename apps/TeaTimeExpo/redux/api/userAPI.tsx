@@ -190,6 +190,16 @@ export class UserAPI {
     }
   }
 
+  static async getCurrentUserId(): Promise<string> {
+    await this.ensureConfigured();
+    const session = await fetchAuthSession();
+    const userId = session.tokens?.idToken?.payload.sub;
+    if (typeof userId !== "string" || !userId.trim()) {
+      throw new Error("Authenticated session is missing the Cognito user ID");
+    }
+    return userId;
+  }
+
   private static async clearStoredToken() {
     await AsyncStorage.multiRemove([
       STORAGE_KEY,

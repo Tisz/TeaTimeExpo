@@ -94,6 +94,7 @@ export const useSuburbSocket = () => {
   const pendingRoomRef = useRef<PendingRoom | null>(null);
   const lastCoordsRef = useRef<{ latitude: number; longitude: number } | null>(null);
   const currentRoomIdRef = useRef<string>('');
+  const currentUserIdRef = useRef<string | null>(null);
 
   const clearReconnectTimer = useCallback(() => {
     if (reconnectTimerRef.current) {
@@ -173,6 +174,8 @@ export const useSuburbSocket = () => {
         return;
       }
 
+      currentUserIdRef.current = await UserAPI.getCurrentUserId();
+
       clearReconnectTimer();
       clearHeartbeat();
 
@@ -202,7 +205,7 @@ export const useSuburbSocket = () => {
               avatarUrl: parsed.avatarUrl ?? null,
               message: messageText,
               messageTime: parsed.messageTime ?? new Date().toISOString(),
-              sender: 'other',
+              sender: parsed.userId === currentUserIdRef.current ? 'user' : 'other',
             })
           );
         } catch (error) {
@@ -249,6 +252,7 @@ export const useSuburbSocket = () => {
 
     disconnectSocket();
     try {
+      currentUserIdRef.current = await UserAPI.getCurrentUserId();
       const history = await getRecentMessages(roomId).unwrap();
       if (currentRoomIdRef.current === roomId) {
         dispatch(
@@ -259,7 +263,7 @@ export const useSuburbSocket = () => {
               avatarUrl: message.avatarUrl ?? null,
               message: message.message,
               messageTime: message.messageTime,
-              sender: 'other',
+              sender: message.userId === currentUserIdRef.current ? 'user' : 'other',
             }))
           )
         );
